@@ -1,5 +1,6 @@
 """
-Callback server for Meta ads oauth
+Callback server for Meta ads oauth.
+Meta oauth needs a callback server to redirect the user back to the application after authorization.
 """
 import socket
 import threading
@@ -119,7 +120,7 @@ class CallbackHandler(BaseHTTPRequestHandler):
             logger.warning("OAuth callback received without code or error")
         
         self.wfile.write(html.encode())
-    
+
     def _handle_token(self):
         """Handle token endpoint for retrieving stored token data"""
         # This endpoint allows other parts of the application to retrieve

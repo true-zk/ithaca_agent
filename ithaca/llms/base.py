@@ -33,6 +33,7 @@ class BaseLLM(ABC):
     async def generate_json(
         self,
         prompt: str,
+        schema: Dict[str, Any],
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,

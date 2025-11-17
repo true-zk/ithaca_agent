@@ -1,6 +1,6 @@
 """
-Meta oauth
-For now, only supports meta ads oauth
+Meta oauth.
+Cite from: https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-long-lived
 """
 from typing import Optional, Dict, Any
 import json
@@ -11,7 +11,7 @@ import requests
 from ithaca.logger import logger
 from ithaca.utils import get_cache_dir
 from ithaca.settings import META_APP_ID, META_APP_SECRET
-from ithaca.oauth.callback_server import start_callback_server
+from ithaca.oauth.callback_server import start_callback_server, shutdown_callback_server
 
 
 logger.info("OAuth manager initialized")
@@ -23,11 +23,11 @@ class OAuthToken:
         self,
         access_token: str,
         expires_in: Optional[int] = None,
-        user_id: Optional[str] = None,
+        token_type: Optional[str] = None,
     ):
         self.access_token = access_token
         self.expires_in = expires_in
-        self.user_id = user_id
+        self.token_type = token_type
         self.created_at = int(time.time())
         logger.debug(f"TokenInfo created. Expires in: {expires_in if expires_in else 'Not specified'}")
     
@@ -44,7 +44,7 @@ class OAuthToken:
         return {
             "access_token": self.access_token,
             "expires_in": self.expires_in,
-            "user_id": self.user_id,
+            "token_type": self.token_type,
             "created_at": self.created_at
         }
     
@@ -54,7 +54,7 @@ class OAuthToken:
         token = cls(
             access_token=data.get("access_token", ""),
             expires_in=data.get("expires_in"),
-            user_id=data.get("user_id")
+            token_type=data.get("token_type")
         )
         token.created_at = data.get("created_at", int(time.time()))
         return token
@@ -62,7 +62,7 @@ class OAuthToken:
 
 class OAuthManager:
     """
-    Manager for OAuth authentication
+    Manager for OAuth authentication. This should be used as a singleton.
     """
     AUTH_SCOPE = "business_management,public_profile,pages_show_list,pages_read_engagement"
     AUTH_RESPONSE_TYPE = "code" # if 'token', will use implicit flow (data not response to server)
@@ -106,47 +106,77 @@ class OAuthManager:
             f"response_type={self.AUTH_RESPONSE_TYPE}"
         )
     
-    def exchange_code_for_token(self, code: str) -> Optional[OAuthToken]:
+    def exchange_code_for_token(self, code: str, redirect_uri: str) -> Optional[OAuthToken]:
         """
         Exchange authorization code for access token
         """
         try:
+            logger.debug(f"Exchanging code with redirect_uri: {redirect_uri}")
+            
             response = requests.post(
                 "https://graph.facebook.com/v22.0/oauth/access_token",
                 data={
                     "client_id": self.app_id,
                     "client_secret": self.app_secret,
-                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,  # ✅ 添加 redirect_uri
                     "code": code
                 }
             )
-            response.raise_for_status()
+            
+            # Check response before raising
+            if response.status_code != 200:
+                error_data = response.json()
+                logger.error(f"Meta API error: {error_data}")
+                logger.error(f"Status code: {response.status_code}")
+                response.raise_for_status()
+            
             data = response.json()
+            logger.info(f"✅ Successfully exchanged code for token")
+            logger.debug(f"Token data: {data}")
+            
             return OAuthToken(
                 access_token=data["access_token"],
-                expires_in=data["expires_in"],
-                user_id=data["user_id"]
+                expires_in=data.get("expires_in"),
+                token_type=data.get("token_type")
             )
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error exchanging code: {e}")
+            try:
+                error_detail = e.response.json()
+                logger.error(f"Error details: {error_detail}")
+            except:
+                pass
+            return None
         except Exception as e:
             logger.error(f"Failed to exchange code for token: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
-    def authenticate(self, force_refresh: bool = False) -> Optional[str]:
+    def authenticate(self, force_refresh: bool = False, wait_for_token: bool = True, timeout: int = 180):
         """
         Authenticate with Meta APIs
         
         Args:
             force_refresh: Force token refresh even if cached token exists
+            wait_for_token: Whether to wait for user authorization (default: True)
+            timeout: Maximum time to wait for authorization in seconds (default: 180)
             
         Returns:
             Access token if successful, None otherwise
         """
         # Check if we already have a valid token
         if not force_refresh and self.token and not self.token.is_expired():
+            logger.info("Using cached token")
             return self.token.access_token
         
         # Authenticate with Meta APIs
         try:
+            from ithaca.oauth.callback_server import token_container
+            
+            # Clear previous token if any
+            token_container.pop("token", None)
+            
             port = start_callback_server()
             
             # Update redirect URI with the actual port for callback server
@@ -156,14 +186,63 @@ class OAuthManager:
             auth_url = self.get_auth_url()
             
             # Open browser with auth URL
-            logger.info(f"Opening browser with URL: {auth_url}")
+            logger.info(f"Opening browser for authorization...")
+            logger.info(f"Auth URL: {auth_url}")
             webbrowser.open(auth_url)
             
-            # We don't wait for the token here anymore
-            # The token will be processed by the **callback server**
-            # Just return None to indicate we've started the flow
+            if not wait_for_token:
+                logger.info("Not waiting for token (wait_for_token=False)")
+                return None
+            
+            # Wait for authorization code
+            logger.info(f"Waiting for user authorization (timeout: {timeout}s)...")
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout:
+                if "auth_code" in token_container:
+                    code = token_container["auth_code"]
+                    logger.info(f"✅ Received authorization code: {code[:10]}...")
+                    
+                    # Exchange code for token
+                    logger.info("Exchanging code for access token...")
+                    # exchange_redirect_uri = f"http://localhost:{port}/token_exchange"
+                    token = self.exchange_code_for_token(code, redirect_uri=self.redirect_uri)
+                    if token:
+                        logger.info("✅ Authentication successful!")
+                        self.token = token
+                        self._save_cached_token()
+
+                        shutdown_callback_server()
+                        return token.access_token, token.expires_in, token.token_type
+                    else:
+                        logger.error("❌ Failed to exchange code for token")
+                        return None
+                
+                # Check every 0.5 seconds
+                time.sleep(0.5)
+            
+            logger.error(f"❌ Timeout waiting for authorization ({timeout}s)")
             return None
+            
         except Exception as e:
-            logger.error(f"Failed to start callback server: {e}")
-            logger.info("Callback server disabled. OAuth authentication flow cannot be used.")
+            logger.error(f"Authentication failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
+    
+    def invalidate_token(self) -> None:
+        """Invalidate the current token"""
+        logger.info(f"Token invalidated: {self.token.access_token[:10]}...")
+        self.token = None
+        self.cache_file.unlink(missing_ok=True)
+        logger.info(f"Cached token file removed: {self.cache_file}")
+    
+    def get_access_token(self) -> Optional[str]:
+        """Get the access token"""
+        if self.token and not self.token.is_expired():
+            return self.token.access_token
+        else:
+            return None
+        
+
+auth_manager = OAuthManager()
