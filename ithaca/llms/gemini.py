@@ -7,6 +7,8 @@ import json
 
 from google import genai
 from google.genai.types import GenerateContentConfig
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from ithaca.llms.base import BaseLLM
 from ithaca.settings import GEMINI_API_KEY
@@ -15,8 +17,19 @@ from ithaca.logger import logger
 
 class GeminiLLM(BaseLLM):
     """
-    Gemini LLM client
+    Gemini LLM client, singleton class.
     """
+    _instance = None
+    langchain_llm = None
+
+    def __new__(cls, *args, **kwargs):
+        """
+        Singleton instance
+        """
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -130,3 +143,22 @@ class GeminiLLM(BaseLLM):
         except Exception as e:
             logger.error(f"Error generating embedding from Gemini: {e}")
             raise e
+
+    # Langchain llm
+    def get_langchain_llm(self, **kwargs) -> BaseChatModel:
+        """
+        Get Langchain LLM
+        """
+        if self.langchain_llm is None:
+            config = {
+                "model": self.model,
+                "api_key": self.api_key,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens
+            }
+            config.update(kwargs)
+            self.langchain_llm = ChatGoogleGenerativeAI(**config)
+        return self.langchain_llm
+        
+
+gemini_llm = GeminiLLM()

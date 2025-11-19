@@ -3,6 +3,11 @@ Global settings
 """
 # TODO: for dev, hardcode here. This should be structured as a config file.
 
+# Meta Ads API
+META_GRAPH_API_VERSION = "v24.0"
+META_GRAPH_API_BASE = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}"
+USER_AGENT = "ithaca/1.0"
+
 # meta ads oauth
 META_APP_ID = "295659632199168"
 META_APP_SECRET = "7781f7c36bb73839866856340ff3c762"

@@ -8,13 +8,11 @@ import httpx
 import asyncio
 import functools
 import os
+
 from ithaca.oauth.auth import auth_manager
 from ithaca.logger import logger
+from ithaca.settings import META_GRAPH_API_VERSION, META_GRAPH_API_BASE, USER_AGENT
 
-# Constants
-META_GRAPH_API_VERSION = "v22.0"
-META_GRAPH_API_BASE = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}"
-USER_AGENT = "ithaca/1.0"
 
 # Log key environment and configuration at startup
 logger.info("Core API module initialized")
@@ -140,7 +138,7 @@ async def make_api_request(
             # Check for authentication errors
             if e.response.status_code == 401 or e.response.status_code == 403:
                 logger.warning("Detected authentication error (401/403)")
-                # auth_manager.invalidate_token()
+                auth_manager.invalidate_token()
             elif "error" in error_info:
                 error_obj = error_info.get("error", {})
                 # Check for specific FB API errors related to auth
@@ -158,7 +156,7 @@ async def make_api_request(
                                 "code": error_obj.get("code")
                             }
                         }
-                    # auth_manager.invalidate_token()
+                    auth_manager.invalidate_token()
             
             # Include full details for technical users
             full_response = {

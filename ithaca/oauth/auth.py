@@ -10,7 +10,7 @@ import requests
 
 from ithaca.logger import logger
 from ithaca.utils import get_cache_dir
-from ithaca.settings import META_APP_ID, META_APP_SECRET
+from ithaca.settings import META_APP_ID, META_APP_SECRET, META_GRAPH_API_BASE
 from ithaca.oauth.callback_server import start_callback_server, shutdown_callback_server
 
 
@@ -99,7 +99,7 @@ class OAuthManager:
 
     def get_auth_url(self) -> str:
         return (
-            f"https://www.facebook.com/v22.0/dialog/oauth?"
+            f"{META_GRAPH_API_BASE}/dialog/oauth?"
             f"client_id={self.app_id}&"
             f"redirect_uri={self.redirect_uri}&"
             f"scope={self.AUTH_SCOPE}&"
@@ -114,7 +114,7 @@ class OAuthManager:
             logger.debug(f"Exchanging code with redirect_uri: {redirect_uri}")
             
             response = requests.post(
-                "https://graph.facebook.com/v22.0/oauth/access_token",
+                f"{META_GRAPH_API_BASE}/oauth/access_token",
                 data={
                     "client_id": self.app_id,
                     "client_secret": self.app_secret,
