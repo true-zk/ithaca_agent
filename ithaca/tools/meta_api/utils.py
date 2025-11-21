@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any, List, Union
 import json
 
 
+# For tool error
 @dataclass
 class ToolError:
     """Error template for API tools."""

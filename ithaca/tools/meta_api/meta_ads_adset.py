@@ -392,10 +392,7 @@ async def delete_adset(
     endpoint = f"{adset_id}"
     try:
         data = await make_api_request(endpoint, access_token, None, method="DELETE")
-        return json.dumps({
-            "message": "Ad set deleted successfully",
-            "adset_id": adset_id,
-        }, indent=2)
+        return json.dumps(data, indent=2)
     except Exception as e:
         return APIToolErrors.api_call_error(
             message=f"Failed to delete ad set: {adset_id}",

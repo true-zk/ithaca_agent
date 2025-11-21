@@ -3,6 +3,9 @@ Global settings
 """
 # TODO: for dev, hardcode here. This should be structured as a config file.
 
+# Cache config
+CACHE_DIR = None
+
 # Meta Ads API
 META_GRAPH_API_VERSION = "v24.0"
 META_GRAPH_API_BASE = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}"
