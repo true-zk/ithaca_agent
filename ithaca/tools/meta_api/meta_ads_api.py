@@ -2,6 +2,7 @@
     Core API functionality for Meta Ads API.
     Cite from: https://github.com/pipeboard-co/meta-ads-mcp/blob/main/meta_ads_mcp/core/api.py
 """
+from curses import meta
 from typing import Any, Dict, Optional, Callable
 import json
 import httpx
@@ -220,3 +221,30 @@ def meta_api_tool(func):
         return result
 
     return wrapper
+
+
+# TODO: I added this tool for common API call, 
+# TODO: but we need to improve it later.
+from langchain.tools import tool
+@tool
+@meta_api_tool
+async def common_api_call_tool(
+    endpoint: str,
+    access_token: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    method: str = "GET"
+) -> Dict[str, Any]:
+    """
+    Common API call tool.
+    This tool is used to call any Meta Ads API endpoint.
+
+    Args:
+        endpoint: API endpoint path (without base URL)
+        access_token: Meta API access token (optional - will use cached token if not provided)
+        params: Additional query parameters
+        method: HTTP method (GET, POST, DELETE)
+
+    Returns:
+        API response as a dictionary
+    """
+    return await make_api_request(endpoint, access_token, params, method)

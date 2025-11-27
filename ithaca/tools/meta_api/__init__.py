@@ -1,3 +1,4 @@
+from ithaca.tools.meta_api.meta_ads_api import common_api_call_tool
 from ithaca.tools.meta_api.meta_ads_adaccount import (
     get_ad_accounts, 
     get_ad_account_info,
@@ -53,6 +54,8 @@ from ithaca.tools.meta_api.meta_ads_insights import get_insights
 
 
 __all__ = [
+    "common_api_call_tool",
+    
     "get_ad_accounts",
     "get_ad_account_info",
 

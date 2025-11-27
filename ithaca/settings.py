@@ -5,6 +5,7 @@ Global settings
 
 # Cache config
 CACHE_DIR = None
+DB_PATH = None
 
 # Meta Ads API
 META_GRAPH_API_VERSION = "v24.0"
