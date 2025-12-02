@@ -15,10 +15,12 @@ def test_meta_oauth():
     print("=" * 60)
     
     # Authenticate (will wait for user to authorize in browser)
-    access_token, expires_in, token_type = auth_manager.authenticate(force_refresh=True)
-    print(f"Expires in: {expires_in}")
-    print(f"Token Type: {token_type}")
+    auth_manager.authenticate(force_refresh=True)
+    access_token = auth_manager.get_access_token()
     print(f"Access Token: {access_token[:30]}...")
+    print(f"Expires in: {auth_manager.token.expires_in}")
+    print(f"Token Type: {auth_manager.token.token_type}")
+    print(f"Created At: {auth_manager.token.created_at}")
     
     if not access_token:
         print("❌ Authentication failed!")

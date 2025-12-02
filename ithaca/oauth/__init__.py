@@ -1,0 +1,1 @@
+from ithaca.oauth.auth import auth_manager

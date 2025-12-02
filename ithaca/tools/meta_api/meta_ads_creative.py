@@ -418,10 +418,11 @@ async def delete_creative(
 
 
 # Internal helper functions
+# BUG: dynamic_creative_spec is None to occur error
 async def _get_creative_details(creative_id: str, access_token: Optional[str] = None) -> Dict[str, Any]:
     """
     Internal function to get details of a creative.
-    The query fields are: "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,url_tags,link_url,dynamic_creative_spec"
+    The query fields are: "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,url_tags,link_url"
     
     Args:
         creative_id: Meta Ads creative ID
@@ -432,7 +433,7 @@ async def _get_creative_details(creative_id: str, access_token: Optional[str] = 
     """
     endpoint = f"{creative_id}"
     params = {
-        "fields": "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,url_tags,link_url,dynamic_creative_spec"
+        "fields": "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,url_tags,link_url"
     }
     data = await make_api_request(endpoint, access_token, params)
     return data

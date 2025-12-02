@@ -10,11 +10,20 @@ Cite from: https://developers.facebook.com/docs/marketing-api/reference/adgroup/
 from typing import Optional, Dict, Any, Union
 import json
 import re
+from datetime import datetime, timedelta
 
 from langchain.tools import tool
 
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
 from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors
+
+
+TIME_RANGE_PRESETS = [
+    'today', 'yesterday', 'this_month', 'last_month', 'this_quarter', 'maximum', 'data_maximum', 
+    'last_3d', 'last_7d', 'last_14d', 'last_28d', 'last_30d', 'last_90d', 'last_week_mon_sun', 
+    'last_week_sun_sat', 'last_quarter', 'last_year', 'this_week_mon_today', 'this_week_sun_today', 'this_year'
+]
+
 
 
 #TODO: This is an aggregated tool for now, 
@@ -23,7 +32,7 @@ from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors
 @meta_api_tool
 async def get_insights(
     id: str,
-    time_range: Union[str, Dict[str, str]] = "maximun",
+    time_range: Union[str, Dict[str, str]] = {"since":(datetime.now() - timedelta(days=30 * 30)).strftime("%Y-%m-%d"),"until":datetime.now().strftime("%Y-%m-%d")},
     breakdown: str = "",
     level: str = "ad",
     after: str = "",
@@ -87,7 +96,10 @@ async def get_insights(
         else:
             return APIToolErrors.invalid_time_range(time_range).to_json()
     else:
-        params["time_range"] = time_range
+        if time_range in TIME_RANGE_PRESETS:
+            params["time_range"] = time_range
+        else:
+            return APIToolErrors.invalid_time_range(time_range).to_json()
     
     if breakdown:
         params["breakdown"] = breakdown

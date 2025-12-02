@@ -159,6 +159,22 @@ class GeminiLLM(BaseLLM):
             config.update(kwargs)
             self.langchain_llm = ChatGoogleGenerativeAI(**config)
         return self.langchain_llm
+    
+    def get_tool_selector_model(
+        self,
+        model: str = "gemini-2.5-flash",
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> BaseChatModel:
+        """
+        Get tool selector model
+        """
+        return ChatGoogleGenerativeAI(
+            model=model, 
+            temperature=temperature, 
+            max_tokens=max_tokens,
+            api_key=self.api_key
+        )
         
 
 gemini_llm = GeminiLLM()

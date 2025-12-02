@@ -6,6 +6,7 @@ from ithaca.db import IthacaDB
 from ithaca.db.history import HistoryModel
 from ithaca.logger import logger
 
+
 # Common types for all agents
 class MarketingPlanMixin:
     """
@@ -131,16 +132,54 @@ class HistoryMarketingPlan(BaseModel, MarketingPlanMixin):
             raise ValueError("Plan score must be between 0 and 10")
         return v
 
+    @staticmethod
+    def from_history_model(data: HistoryModel) -> 'HistoryMarketingPlan':
+        """
+        Convert the history model to a history marketing plan.
+        """
+        return HistoryMarketingPlan(
+                plan_uuid=data.plan_uuid,
+                plan_description=data.plan_description,
+                plan_details=data.plan_details,
+                budget=data.budget,
+                actual_cost=data.actual_cost,
+                plan_evaluation=data.plan_evaluation,
+                plan_score=data.plan_score,
+                created_at=data.created_at,
+                evaluated_at=data.evaluated_at,
+            )
+    
+    @staticmethod
+    def extract_latest5_hist_from_db(product_name: str, product_url: str) -> List['HistoryMarketingPlan']:
+        """
+        Extract the latest 5 history marketing plans from the database.
+        """
+        q_res: List[HistoryModel] = IthacaDB.advanced_query(
+            HistoryModel,
+            filters={
+                    "product_name": product_name, 
+                    "product_url": product_url,
+                    "plan_score": {"!=": None},
+                    "evaluated_at": {"!=": None},
+                },
+            order_by="created_at",
+            order_desc=True,
+            limit=5
+        )
+        if q_res:
+            return [HistoryMarketingPlan.from_history_model(res) for res in q_res]
+        else:
+            return []
 
 # Holistic agent
 class HolisticInput(BaseModel):
     """
     Input of holistic agent
     """
-    total_budget: Optional[float] = Field(description="Total budget for the marketing plans")
+    total_budget: Optional[float] = Field(description="Total budget in USD for the marketing plans")
     product_name: str = Field(description="Name of the product being marketed")
     product_url: str = Field(description="URL of the product or company website")
-    product_picture_url: Optional[str] = Field(description="Product picture url")
+    product_picture: Optional[str] = Field(description="Product picture url or data")
     marketing_history: Optional[List[HistoryMarketingPlan]] = Field(description="Marketing history of the product", default=None)
 
 
@@ -150,34 +189,20 @@ class HolisticOutput(BaseModel):
     """
     product_name: str = Field(description="Name of the product being marketed")
     product_url: str = Field(description="URL of the product or company website")
-    marketing_plans: List[MarketingPlan] = Field(
-        description="List of marketing plans for the product",
-        min_items=1,
-        max_items=5
-    )
-    total_budget: Optional[float] = Field(description="Total budget for the marketing plans")
+    marketing_plan: MarketingPlan = Field(description="Marketing plan for the product")
+    total_budget: Optional[float] = Field(description="Total budget in USD for the marketing plans")
 
     def save_to_db(self) -> bool:
         """
-        Save the new marketing plans to the database.
+        Save the new marketing plan to the database.
         """
-        plans_to_save = []
-        for plan in self.marketing_plans:
-            history_model = plan.to_history_model()
-            history_model.product_name = self.product_name
-            history_model.product_url = self.product_url
-            plans_to_save.append(history_model)
-        
-        if len(plans_to_save) == 0:
-            logger.error("No plans to save")
-            return False
-        
-        success = IthacaDB.add(plans_to_save)
+        self.marketing_plan.product_name = self.product_name
+        self.marketing_plan.product_url = self.product_url
+        success = IthacaDB.add(self.marketing_plan.to_history_model())
         if success:
-            logger.info(f"Successfully saved {len(plans_to_save)} plans to the database")
+            logger.info(f"Successfully saved marketing plan to the database")
         else:
-            logger.error(f"Failed to save {len(plans_to_save)} plans to the database")
-
+            logger.error(f"Failed to save marketing plan to the database")
 
 
 # Evaluation agent
@@ -188,8 +213,8 @@ class EvaluationInput(BaseModel):
     product_name: str = Field(description="Name of the product being marketed")
     product_url: str = Field(description="URL of the product or company website")
     new_marketing_plans: List[MarketingPlan] = Field(description="List of new marketing plans to evaluate")
-    total_budget: Optional[float] = Field(description="Total budget for the new marketing plans")
-    history_marketing_plans: List[HistoryMarketingPlan] = Field(description="List of history marketing plans to compare with new marketing plans")
+    total_budget: Optional[float] = Field(description="Total budget in USD for the new marketing plans")
+    history_marketing_plans: Optional[List[HistoryMarketingPlan]] = Field(description="List of history marketing plans to compare with new marketing plans")
 
 
 class EvaluationOutput(BaseModel):
@@ -198,27 +223,22 @@ class EvaluationOutput(BaseModel):
     """
     product_name: str = Field(description="Name of the product being marketed")
     product_url: str = Field(description="URL of the product or company website")
-    marketing_plans: List[HistoryMarketingPlan] = Field(description="List of marketing plans with evaluation results")
+    marketing_plan: HistoryMarketingPlan = Field(description="Marketing plan with evaluation results")
 
     def update_to_db(self) -> bool:
         """
         Update the evaluation output to the history table.
         """
-        plans_to_update = []
-        for plan in self.marketing_plans:
-            if plan.check_exist(plan_name=self.product_name, plan_url=self.product_url):
-                history_model = plan.to_history_model()
-                history_model.product_name = self.product_name
-                history_model.product_url = self.product_url
-                plans_to_update.append(history_model)
-        
-        if len(plans_to_update) == 0:
-            logger.error("No plans to update")
+        if not self.marketing_plan.check_exist(plan_name=self.product_name, plan_url=self.product_url):
+            logger.error("Marketing plan not found")
             return False
         
-        success = IthacaDB.update(plans_to_update)
+        history_model = self.marketing_plan.to_history_model()
+        history_model.product_name = self.product_name
+        history_model.product_url = self.product_url
+        success = IthacaDB.update(history_model)
         if success:
-            logger.info(f"Successfully updated {len(plans_to_update)} plans to the database")
+            logger.info(f"Successfully updated marketing plan to the database")
         else:
-            logger.error(f"Failed to update {len(plans_to_update)} plans to the database")
+            logger.error(f"Failed to update marketing plan to the database")
         return success

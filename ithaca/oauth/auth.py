@@ -10,7 +10,7 @@ import requests
 
 from ithaca.logger import logger
 from ithaca.utils import get_cache_dir
-from ithaca.settings import META_APP_ID, META_APP_SECRET, META_GRAPH_API_BASE
+from ithaca.settings import META_APP_ID, META_APP_SECRET, META_GRAPH_API_BASE, META_OAUTH_BASE
 from ithaca.oauth.callback_server import start_callback_server, shutdown_callback_server
 
 
@@ -78,14 +78,23 @@ class OAuthManager:
         self.token: Optional[OAuthToken] = None
         self.cache_file = get_cache_dir() / "meta_ads_token.json"
         self._load_cached_token()
+        if self.token is None:
+            self.authenticate(force_refresh=True)
     
     def _load_cached_token(self) -> None:
         #  TODO: Token expiration check
         if self.cache_file.exists():
             with self.cache_file.open("r") as f:
                 data = json.load(f)
-                self.token = OAuthToken.deserialize(data)
+                token = OAuthToken.deserialize(data)
                 logger.info(f"Cached token loaded from {self.cache_file}")
+                if token.is_expired():
+                    logger.info("Cached token is expired.")
+                    self.token = None
+                else:
+                    logger.info(f"Cached token is valid. Expires in: {token.expires_in} seconds")
+                    self.token = token
+                
     
     def _save_cached_token(self) -> None:
         if self.token:
@@ -99,7 +108,7 @@ class OAuthManager:
 
     def get_auth_url(self) -> str:
         return (
-            f"{META_GRAPH_API_BASE}/dialog/oauth?"
+            f"{META_OAUTH_BASE}/dialog/oauth?"
             f"client_id={self.app_id}&"
             f"redirect_uri={self.redirect_uri}&"
             f"scope={self.AUTH_SCOPE}&"

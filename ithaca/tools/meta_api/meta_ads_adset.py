@@ -41,8 +41,8 @@ async def get_adsets(
         limit: Maximum number of ad sets to return (default: 10)
         access_token: Meta API access token (optional - will use cached token if not provided)
     """
-    if not account_id:
-        return APIToolErrors.no_account_id().to_json()
+    # if not account_id:
+    #     return APIToolErrors.no_account_id().to_json()
     
     endpoint = f"{valid_account_id(account_id)}/adsets" if not campaign_id else f"{campaign_id}/adsets"
     params = {

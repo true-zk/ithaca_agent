@@ -8,9 +8,23 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from google import genai
+from google.genai import types
 from langchain.tools import tool
 
 from ithaca.llms.gemini import gemini_llm
+
+
+grounding_tool = types.Tool(
+    google_search=types.GoogleSearch()
+)
+
+
+@tool
+async def web_search(query: str) -> str:
+    """
+    Search the web for information.
+    """
+    return await gemini_llm.generate(query, tools=[grounding_tool])
 
 
 @tool
