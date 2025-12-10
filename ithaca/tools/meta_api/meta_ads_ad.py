@@ -10,22 +10,21 @@ Cite from: https://developers.facebook.com/docs/marketing-api/reference/adgroup
 """
 from typing import Optional, Dict, Any, List
 import json
+import asyncio
 
 from langchain.tools import tool
 
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
-from ithaca.tools.meta_api.utils import APIToolErrors
+from ithaca.tools.meta_api.utils import APIToolErrors, concise_return_message
 from ithaca.tools.meta_api.utils import STATUS_VALIDATOR
 
 
 @tool
-@meta_api_tool
 async def get_ads(
     account_id: Optional[str] = None,
     campaign_id: Optional[str] = None,
     adset_id: Optional[str] = None,
-    limit: int = 100,
-    access_token: Optional[str] = None,
+    limit: int = 100
 ) -> str:
     """
     Get ads for a Meta Ads by providing exactly one of "account_id", "campaign_id" or "adset_id".
@@ -36,8 +35,36 @@ async def get_ads(
         campaign_id: Meta Ads campaign ID
         adset_id: Meta Ads adset ID
         limit: Maximum number of ads to return (default: 100)
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return await _get_ads_kernel(account_id, campaign_id, adset_id, limit)
+
+
+def get_ads_tool(
+    account_id: str | None = None,
+    campaign_id: str | None = None,
+    adset_id: str | None = None,
+    limit: int = 100
+) -> str:
+    """
+    Get ads for a Meta Ads by providing exactly one of "account_id", "campaign_id" or "adset_id".
+
+    Args:
+        account_id: Meta Ads account ID (for example, "act_1234567890")
+        campaign_id: Meta Ads campaign ID
+        adset_id: Meta Ads adset ID
+        limit: Maximum number of ads to return (default: 100)
+    """
+    return asyncio.run(_get_ads_kernel(account_id, campaign_id, adset_id, limit))
+
+
+@meta_api_tool
+async def _get_ads_kernel(
+    account_id: Optional[str] = None,
+    campaign_id: Optional[str] = None,
+    adset_id: Optional[str] = None,
+    limit: int = 100,
+    access_token: Optional[str] = None,
+) -> str:
     if not account_id and not campaign_id and not adset_id:
         return APIToolErrors.error(
             message=" exactly one of account_id, campaign_id, or adset_id must be provided",
@@ -57,14 +84,12 @@ async def get_ads(
         "limit": limit
     }
     data = await make_api_request(endpoint, access_token, params)
-    return json.dumps(data, indent=2)
+    return concise_return_message(data, params=params)
 
 
 @tool
-@meta_api_tool
 async def get_ad_details(
-    ad_id: str,
-    access_token: Optional[str] = None
+    ad_id: str
 ) -> str:
     """
     Get details information about a specific Meta Ads ad.
@@ -72,8 +97,28 @@ async def get_ad_details(
     
     Args:
         ad_id: Meta Ads ad ID
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return await _get_ad_details_kernel(ad_id)
+
+
+def get_ad_details_tool(
+    ad_id: str
+) -> str:
+    """
+    Get details information about a specific Meta Ads ad.
+    The query fields are: "id,name,adset_id,campaign_id,status,creative,created_time,updated_time,bid_amount,conversion_domain,tracking_specs,preview_shareable_link"
+    
+    Args:
+        ad_id: Meta Ads ad ID
+    """
+    return asyncio.run(_get_ad_details_kernel(ad_id))
+
+
+@meta_api_tool
+async def _get_ad_details_kernel(
+    ad_id: str,
+    access_token: Optional[str] = None
+) -> str:
     if not ad_id:
         return APIToolErrors.arg_missing("ad_id", "str", "Ad ID is required").to_json()
     
@@ -82,20 +127,18 @@ async def get_ad_details(
         "fields": "id,name,adset_id,campaign_id,status,creative,created_time,updated_time,bid_amount,conversion_domain,tracking_specs,preview_shareable_link",
     }
     data = await make_api_request(endpoint, access_token, params)
-    return json.dumps(data, indent=2)
+    return concise_return_message(data, params=params)
 
 
 @tool
-@meta_api_tool
 async def create_ad(
     account_id: str,
     adset_id: str,
     ad_name: str,
     creative_id: str,
-    status: str = "PAUSED",
+    status: str = "ACTIVE",
     bid_amount: Optional[int] = None,
-    tracking_specs: Optional[List[Dict[str, Any]]] = None,
-    access_token: Optional[str] = None
+    tracking_specs: Optional[List[Dict[str, Any]]] = None
 ) -> str:
     """
     Create a new ad with an existing creative.
@@ -109,12 +152,49 @@ async def create_ad(
         adset_id: Meta Ads adset ID where the ad will be placed
         ad_name: Ad name
         creative_id: Existing Meta Ads creative ID to be used for the ad
-        status: Ad status (default: PAUSED)
+        status: Ad status (default: ACTIVE)
         bid_amount: Bid amount in account currency (in cents for USD)
         tracking_specs: Optional tracking specifications (e.g., for pixel events).
                       Example: [{"action.type":"offsite_conversion","fb_pixel":["YOUR_PIXEL_ID"]}]
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return await _create_ad_kernel(account_id, adset_id, ad_name, creative_id, status, bid_amount, tracking_specs)
+
+
+def create_ad_tool(
+    account_id: str,
+    adset_id: str,
+    ad_name: str,
+    creative_id: str,
+    status: str = "ACTIVE",
+) -> str:
+    """
+    Create a new ad with an existing creative.
+
+    Note:
+        Dynamic Creative creatives require the parent ad set to have `is_dynamic_creative=true`.
+        Otherwise, ad creation will fail with error_subcode 1885998.
+
+    Args:
+        account_id: Meta Ads account ID (for example, "act_1234567890")
+        adset_id: Meta Ads adset ID where the ad will be placed
+        ad_name: Ad name
+        creative_id: Existing Meta Ads creative ID to be used for the ad
+        status: Ad status (default: ACTIVE)
+    """
+    return asyncio.run(_create_ad_kernel(account_id, adset_id, ad_name, creative_id, status))
+
+
+@meta_api_tool
+async def _create_ad_kernel(
+    account_id: str,
+    adset_id: str,
+    ad_name: str,
+    creative_id: str,
+    status: str = "ACTIVE",
+    bid_amount: Optional[int] = None,
+    tracking_specs: Optional[List[Dict[str, Any]]] = None,
+    access_token: Optional[str] = None
+) -> str:
     required_params = {
         "account_id": account_id,
         "adset_id": adset_id,
@@ -146,7 +226,8 @@ async def create_ad(
     
     try:
         data = await make_api_request(endpoint, access_token, params, method="POST")
-        return json.dumps(data, indent=2)
+        # return json.dumps(data, indent=2)
+        return concise_return_message(data, params=params)
     except Exception as e:
         error_msg = str(e)
         return APIToolErrors.api_call_error(
@@ -156,18 +237,16 @@ async def create_ad(
         ).to_json()
 
 
-@tool
-@meta_api_tool
-async def update_ad(
+def update_ad_tool(
     ad_id: str,
-    status: Optional[str] = None,
-    bid_amount: Optional[int] = None,
-    tracking_specs: Optional[List[Dict[str, Any]]] = None,
-    creative_id: Optional[str] = None,
-    access_token: Optional[str] = None
+    status: str | None = None,
+    bid_amount: int | None = None,
+    tracking_specs: list | None = None,
+    creative_id: str | None = None
 ) -> str:
     """
     Update an existing Meta Ads ad with new settings.
+    Only update fields that were used during ad creation can be updated.
     
     Args:
         ad_id: Meta Ads ad ID
@@ -175,8 +254,19 @@ async def update_ad(
         bid_amount: Bid amount in account currency (in cents for USD)
         tracking_specs: Optional tracking specifications (e.g., for pixel events).
         creative_id: ID of the creative to associate with this ad (changes the ad's image/content)
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return asyncio.run(_update_ad_kernel(ad_id, status, bid_amount, tracking_specs, creative_id))
+
+
+@meta_api_tool
+async def _update_ad_kernel(
+    ad_id: str,
+    status: Optional[str] = None,
+    bid_amount: Optional[int] = None,
+    tracking_specs: Optional[List[Dict[str, Any]]] = None,
+    creative_id: Optional[str] = None,
+    access_token: Optional[str] = None
+) -> str:
     if not ad_id:
         return APIToolErrors.arg_missing("ad_id", "str", "Ad ID is required").to_json()
 
@@ -196,7 +286,7 @@ async def update_ad(
 
     try:
         data = await make_api_request(endpoint, access_token, params, method="POST")
-        return json.dumps(data, indent=2)
+        return concise_return_message(data, params=params)
     except Exception as e:
         return APIToolErrors.api_call_error(
             message=f"Failed to update ad: {ad_id}",

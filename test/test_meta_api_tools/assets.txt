@@ -1,0 +1,48 @@
+campaigns:
+
+120237324123260156
+Objective: OUTCOME_TRAFFIC
+
+120237328976970156
+Objective: OUTCOME_APP_PROMOTION
+
+120237340128070156
+Objective: OUTCOME_TRAFFIC
+use adset level budget
+
+adsets:
+
+120237337207690156:
+Campaign: 120237324123260156
+Optimization goal: LINK_CLICKS
+"billing_event": "IMPRESSIONS",
+
+
+120237344008200156
+{
+    "account_id": "act_368401904774563",
+    "campaign_id": "120237340128070156",    # AAA test campaign, Objective: OUTCOME_TRAFFIC, use adset level budgets
+    "adset_name": "AAA Test Ad Set for OUTCOME_TRAFFIC with Ad Set Level Budgets",
+    "optimization_goal": "LINK_CLICKS",
+    "billing_event": "IMPRESSIONS",
+    "status": "PAUSED",
+    "daily_budget": 1001,
+    "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
+}
+
+
+pages:
+f2679fe83200920fca39859ea356b3c3
+
+images:
+39e90fa093c5cdb1f9adf8bdb2784f38
+f2679fe83200920fca39859ea356b3c3
+
+creatives:
+2000975177363248    # dynamic single image
+1581322583040540    # single image
+1550228496180500    # dynamic multi image
+2218829495307938    # dynamic multi image with call for action
+
+ads:
+120237362889990156  # single, adset:120237344008200156

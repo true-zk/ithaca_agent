@@ -18,4 +18,11 @@ def get_cache_dir() -> pathlib.Path:
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
-    
+
+
+def get_skill_by_file_name(file_name: str) -> str:
+    file_path = pathlib.Path(__file__).parent / "skills" / file_name
+    if not file_path.exists():
+        raise FileNotFoundError(f"Skill file {file_path} not found")
+    with open(file_path, "r") as f:
+        return f.read()

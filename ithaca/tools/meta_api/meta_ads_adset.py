@@ -14,22 +14,16 @@ Ctie from: https://developers.facebook.com/docs/marketing-api/reference/ad-campa
 """
 from typing import Optional, Dict, Any, List
 import json
+import asyncio
 
 from langchain.tools import tool
 
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
-from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors
+from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors, concise_return_message
 from ithaca.tools.meta_api.utils import enum_arg_validators
 
 
-@tool
-@meta_api_tool
-async def get_adsets(
-    account_id: str,
-    campaign_id: str = "",
-    limit: int = 10,
-    access_token: Optional[str] = None,
-) -> str:
+def get_adsets_tool(account_id: str, campaign_id: str = "", limit: int = 10):
     """
     Get ad sets for a Meta Ads account with optional filtering by campaign.
     The query fields are: "id,name,campaign_id,status,daily_budget,lifetime_budget,targeting,bid_amount,bid_strategy,optimization_goal,billing_event,start_time,end_time,created_time,updated_time,is_dynamic_creative,frequency_control_specs{event,interval_days,max_frequency}"
@@ -37,57 +31,122 @@ async def get_adsets(
     Args:
         account_id: Meta Ads account ID (for example, "act_1234567890")
         campaign_id: Optional campaign ID to filter ad sets by. (default: "")
-            Default empty string "" means get all ad sets.
         limit: Maximum number of ad sets to return (default: 10)
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
-    # if not account_id:
-    #     return APIToolErrors.no_account_id().to_json()
-    
+    return asyncio.run(_get_adsets_kernel(account_id, campaign_id, limit))
+
+
+@meta_api_tool
+async def _get_adsets_kernel(account_id: str, campaign_id: str = "", limit: int = 10, access_token: Optional[str] = None):
+    if not account_id:
+        return APIToolErrors.no_account_id().to_json()
     endpoint = f"{valid_account_id(account_id)}/adsets" if not campaign_id else f"{campaign_id}/adsets"
     params = {
         "fields": "id,name,campaign_id,status,daily_budget,lifetime_budget,targeting,bid_amount,bid_strategy,optimization_goal,billing_event,start_time,end_time,created_time,updated_time,is_dynamic_creative,frequency_control_specs{event,interval_days,max_frequency}",
         "limit": limit
     }
-    
     data = await make_api_request(endpoint, access_token, params)
-    return json.dumps(data, indent=2)
+    return concise_return_message(data)
 
 
-@tool
-@meta_api_tool
-async def get_adset_details(
-    adset_id: str,
-    access_token: Optional[str] = None,
-) -> str:
+def get_adset_details_tool(adset_id: str):
     """
     Get details information about a specific Meta Ads ad set.
     The query fields are: "id,name,campaign_id,status,frequency_control_specs{event,interval_days,max_frequency},daily_budget,lifetime_budget,targeting,bid_amount,bid_strategy,optimization_goal,billing_event,start_time,end_time,created_time,updated_time,attribution_spec,destination_type,promoted_object,pacing_type,budget_remaining,dsa_beneficiary,is_dynamic_creative"
     
     Args:
         adset_id: Meta Ads ad set ID
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return asyncio.run(_get_adset_details_kernel(adset_id))
+
+
+@meta_api_tool
+async def _get_adset_details_kernel(adset_id: str, access_token: Optional[str] = None):
     if not adset_id:
         return APIToolErrors.arg_missing("adset_id", "str", "Ad set ID is required").to_json()
-    
     endpoint = f"{adset_id}"
     params = {
         "fields": "id,name,campaign_id,status,frequency_control_specs{event,interval_days,max_frequency},daily_budget,lifetime_budget,targeting,bid_amount,bid_strategy,optimization_goal,billing_event,start_time,end_time,created_time,updated_time,attribution_spec,destination_type,promoted_object,pacing_type,budget_remaining,dsa_beneficiary,is_dynamic_creative",
     }
     data = await make_api_request(endpoint, access_token, params)
-    return json.dumps(data, indent=2)
+    return concise_return_message(data)
 
 
-@tool
-@meta_api_tool
-async def create_adset(
+def create_adset_tool(
     account_id: str, 
     campaign_id: str, 
     adset_name: str,
     optimization_goal: str,
     billing_event: str,
-    status: str = "PAUSED",
+    status: str = "ACTIVE",
+    daily_budget: int | None = None,
+    lifetime_budget: int | None = None,
+    targeting: dict | None = None, # TODO: targeting param is abtrary dict, we need to abstract and validate it.
+    bid_amount: int | None = None,
+    bid_strategy: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    dsa_beneficiary: str | None = None,
+    promoted_object: dict | None = None,
+    destination_type: str | None = None,
+    is_dynamic_creative: bool | None = None,
+):
+    """
+    Create a new ad set in a Meta Ads account.
+    
+    Args:
+        account_id: Meta Ads account ID (for example, "act_1234567890")
+        campaign_id: Meta Ads campaign ID this ad set belongs to
+        adset_name: Ad set name
+        optimization_goal: Conversion optimization goal (e.g., 'LINK_CLICKS', 'REACH', 'CONVERSIONS', 'APP_INSTALLS')
+        billing_event: How you're charged (e.g., 'IMPRESSIONS', 'LINK_CLICKS')
+        status: Initial ad set status (default: ACTIVE)
+        daily_budget: Daily budget in account currency (in cents) as a string
+        lifetime_budget: Lifetime budget in account currency (in cents) as a string
+        targeting: Targeting specifications including age, location, interests, etc.
+                  Use targeting_automation.advantage_audience=1 for automatic audience finding
+        bid_amount: Bid amount in account currency (in cents)
+        bid_strategy: Bid strategy (e.g., 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP')
+        start_time: Start time in ISO 8601 format (e.g., '2023-12-01T12:00:00-0800')
+        end_time: End time in ISO 8601 format
+        dsa_beneficiary: DSA beneficiary (person/organization benefiting from ads) for European compliance
+        promoted_object: Mobile app configuration for APP_INSTALLS campaigns. Required fields: application_id, object_store_url.
+                        Optional fields: custom_event_type, pixel_id, page_id.
+                        Example: {"application_id": "123456789012345", "object_store_url": "https://apps.apple.com/app/id123456789"}
+        destination_type: Where users are directed after clicking the ad (e.g., 'APP_STORE', 'DEEPLINK', 'APP_INSTALL', 'ON_AD').
+                          Required for mobile app campaigns and lead generation campaigns.
+                          Use 'ON_AD' for lead generation campaigns where user interaction happens within the ad.
+        is_dynamic_creative: Enable Dynamic Creative for this ad set (required when using dynamic creatives with asset_feed_spec/dynamic_creative_spec).
+    """
+    return asyncio.run(_create_adset_kernel(
+        account_id, 
+        campaign_id,
+        adset_name, 
+        optimization_goal, 
+        billing_event, 
+        status, 
+        daily_budget, 
+        lifetime_budget, 
+        targeting, 
+        bid_amount, 
+        bid_strategy, 
+        start_time, 
+        end_time, 
+        dsa_beneficiary, 
+        promoted_object, 
+        destination_type, 
+        is_dynamic_creative
+    ))
+
+
+@meta_api_tool
+async def _create_adset_kernel(
+    account_id: str, 
+    campaign_id: str, 
+    adset_name: str,
+    optimization_goal: str,
+    billing_event: str,
+    status: str = "ACTIVE",
     daily_budget: Optional[int] = None,
     lifetime_budget: Optional[int] = None,
     targeting: Optional[Dict[str, Any]] = None, # TODO: targeting param is abtrary dict, we need to abstract and validate it.
@@ -101,36 +160,7 @@ async def create_adset(
     is_dynamic_creative: Optional[bool] = None,
     access_token: Optional[str] = None
 ) -> str:
-    """
-    Create a new ad set in a Meta Ads account.
-    
-    Args:
-        account_id: Meta Ads account ID (for example, "act_1234567890")
-        campaign_id: Meta Ads campaign ID this ad set belongs to
-        adset_name: Ad set name
-        optimization_goal: Conversion optimization goal (e.g., 'LINK_CLICKS', 'REACH', 'CONVERSIONS', 'APP_INSTALLS')
-        billing_event: How you're charged (e.g., 'IMPRESSIONS', 'LINK_CLICKS')
-        status: Initial ad set status (default: PAUSED)
-        daily_budget: Daily budget in account currency (in cents) as a string
-        lifetime_budget: Lifetime budget in account currency (in cents) as a string
-        targeting: Targeting specifications including age, location, interests, etc.
-                  Use targeting_automation.advantage_audience=1 for automatic audience finding
-        bid_amount: Bid amount in account currency (in cents)
-        bid_strategy: Bid strategy (e.g., 'LOWEST_COST', 'LOWEST_COST_WITH_BID_CAP')
-        start_time: Start time in ISO 8601 format (e.g., '2023-12-01T12:00:00-0800')
-        end_time: End time in ISO 8601 format
-        dsa_beneficiary: DSA beneficiary (person/organization benefiting from ads) for European compliance
-        promoted_object: Mobile app configuration for APP_INSTALLS campaigns. Required fields: application_id, object_store_url.
-                        Optional fields: custom_event_type, pixel_id, page_id.
-                        Example: {"application_id": "123456789012345", "object_store_url": "https://apps.apple.com/app/id123456789"}
-        destination_type: Where users are directed after clicking the ad (e.g., 'APP_STORE', 'DEEPLINK', 'APP_INSTALL', 'ON_AD').
-                          Required for mobile app campaigns and lead generation campaigns.
-                          Use 'ON_AD' for lead generation campaigns where user interaction happens within the ad.
-        is_dynamic_creative: Enable Dynamic Creative for this ad set (required when using dynamic creatives with asset_feed_spec/dynamic_creative_spec).
-        access_token: Meta API access token (optional - will use cached token if not provided)
-    """
     # Check required parameters
-    
     if not account_id:
         return APIToolErrors.no_account_id().to_json()
     
@@ -257,7 +287,7 @@ async def create_adset(
     
     try:
         data = await make_api_request(endpoint, access_token, params, method="POST")
-        return json.dumps(data, indent=2)
+        return concise_return_message(data, params)
     except Exception as e:
         error_msg = str(e)
         
@@ -291,9 +321,7 @@ async def create_adset(
             ).to_json()
 
 
-@tool
-@meta_api_tool
-async def update_adset(
+def update_adset_tool(
     adset_id: str,
     frequency_control_specs: Optional[List[Dict[str, Any]]] = None,
     bid_strategy: Optional[str] = None,
@@ -303,8 +331,7 @@ async def update_adset(
     optimization_goal: Optional[str] = None,
     daily_budget: Optional[int] = None,
     lifetime_budget: Optional[int] = None,
-    access_token: Optional[str] = None
-) -> str:
+):
     """
     Update an existing Meta Ads ad set with new settings inluding frequency_control_specs and budgets.
 
@@ -321,8 +348,23 @@ async def update_adset(
         daily_budget: Daily budget in account currency (in cents) as a string
         lifetime_budget: Lifetime budget in account currency (in cents) as a string
         is_dynamic_creative: Enable/disable Dynamic Creative for this ad set.
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return asyncio.run(_update_adset_kernel(adset_id, frequency_control_specs, bid_strategy, bid_amount, status, targeting, optimization_goal, daily_budget, lifetime_budget))
+
+
+@meta_api_tool
+async def _update_adset_kernel(
+    adset_id: str,
+    frequency_control_specs: Optional[List[Dict[str, Any]]] = None,
+    bid_strategy: Optional[str] = None,
+    bid_amount: Optional[int] = None,
+    status: Optional[str] = None,
+    targeting: Optional[Dict[str, Any]] = None,
+    optimization_goal: Optional[str] = None,
+    daily_budget: Optional[int] = None,
+    lifetime_budget: Optional[int] = None,
+    access_token: Optional[str] = None
+) -> str:
     if not adset_id:
         return APIToolErrors.arg_missing("adset_id", "str", "Ad set ID is required").to_json()
     
@@ -365,7 +407,7 @@ async def update_adset(
     
     try:
         data = await make_api_request(endpoint, access_token, params, method="POST")
-        return json.dumps(data, indent=2)
+        return concise_return_message(data, params)
     except Exception as e:
         return APIToolErrors.api_call_error(
             message=f"Failed to update ad set: {adset_id}",

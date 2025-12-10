@@ -4,10 +4,24 @@ Format which provides layout and contains content for the ad.
 Cite from: https://developers.facebook.com/docs/marketing-api/reference/ad-creative
 Ctie from: https://developers.facebook.com/docs/marketing-api/reference/ad-account/adcreatives
 
+# BUG:
+    For now, only support single image creative like this:
+    {{
+        "account_id": "act_368401904774563",
+        "image_hash": xxxx,
+        "page_id": "101519255589335",
+        "creative_name": "Test Creative AAAA",
+        "message": "Test Message AAAA",
+        "headline": "Test Headline AAAA",
+        "description": "Test Description AAAA",
+    }}
+
 - get_creative_by_account: Get ad creatives for a Meta Ads account.
 - get_creatives_by_ad: Get ad creatives associated with a Meta Ads ad.
 - get_creative_details: Get details of a creative.
 - create_creative: Create a new ad creative using an uploaded image hash.
+# BUG: Update creative is not working.
+# TODO: fix it according to https://developers.facebook.com/docs/marketing-api/reference/ad-creative#Updating
 - update_ad_creative: Update an existing ad creative with new content or settings.
 
 Internal helper functions:
@@ -18,19 +32,46 @@ Internal helper functions:
 from typing import Optional, Dict, Any, List
 import json
 from datetime import datetime
+import asyncio
 
 from langchain.tools import tool
 
 from ithaca.logger import logger
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
 from ithaca.tools.meta_api.utils import APIToolErrors, valid_account_id
-from ithaca.tools.meta_api.utils import STATUS_VALIDATOR
+from ithaca.tools.meta_api.utils import STATUS_VALIDATOR, concise_return_message
 from ithaca.tools.meta_api.meta_ads_page import _discover_pages_for_account
 
 
 @tool
-@meta_api_tool
 async def get_creative_by_account(
+    account_id: str
+) -> str:
+    """
+    Get ad creatives for a Meta Ads account.
+    The query fields are: "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,image_urls_for_viewing"
+    
+    Args:
+        account_id: Meta Ads account ID
+    """
+    return await _get_creative_by_account_kernel(account_id)
+
+
+def get_creative_by_account_tool(
+    account_id: str
+) -> str:
+    """
+    Get ad creatives for a Meta Ads account.
+    The query fields are: "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,image_urls_for_viewing"
+    
+    Args:
+        account_id: Meta Ads account ID
+    """
+    return asyncio.run(_get_creative_by_account_kernel(account_id))
+
+
+@meta_api_tool
+async def _get_creative_by_account_kernel(
     account_id: str,
     access_token: Optional[str] = None
 ) -> str:
@@ -59,10 +100,8 @@ async def get_creative_by_account(
 
 
 @tool
-@meta_api_tool
 async def get_creatives_by_ad(
     ad_id: str,
-    access_token: Optional[str] = None
 ) -> str:
     """
     Get ad creatives associated with a Meta Ads ad.
@@ -70,8 +109,28 @@ async def get_creatives_by_ad(
     
     Args:
         ad_id: Meta Ads ad ID
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return await _get_creatives_by_ad_kernel(ad_id)
+
+
+def get_creatives_by_ad_tool(
+    ad_id: str
+) -> str:
+    """
+    Get ad creatives associated with a Meta Ads ad.
+    The query fields are: "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,image_urls_for_viewing"
+    
+    Args:
+        ad_id: Meta Ads ad ID
+    """
+    return asyncio.run(_get_creatives_by_ad_kernel(ad_id))
+
+
+@meta_api_tool
+async def _get_creatives_by_ad_kernel(
+    ad_id: str,
+    access_token: Optional[str] = None
+) -> str:
     if not ad_id:
         return APIToolErrors.arg_missing("ad_id", "str", "Ad ID is required").to_json()
     endpoint = f"{ad_id}/adcreatives"
@@ -88,15 +147,37 @@ async def get_creatives_by_ad(
 
 
 @tool
-@meta_api_tool
 async def get_creative_details(
-    creative_id: str,
-    access_token: Optional[str] = None
+    creative_id: str
 ) -> str:
     """
     Get details of a creative.
     The query fields are: "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,url_tags,link_url,dynamic_creative_spec"
+    
+    Args:
+        creative_id: Meta Ads creative ID
     """
+    return await _get_creative_details_kernel(creative_id)
+
+
+def get_creative_details_tool(
+    creative_id: str
+) -> str:
+    """
+    Get details of a creative.
+    The query fields are: "id,name,status,thumbnail_url,image_url,image_hash,object_story_spec,asset_feed_spec,url_tags,link_url,dynamic_creative_spec"
+    
+    Args:
+        creative_id: Meta Ads creative ID
+    """
+    return asyncio.run(_get_creative_details_kernel(creative_id))
+
+
+@meta_api_tool
+async def _get_creative_details_kernel(
+    creative_id: str,
+    access_token: Optional[str] = None
+) -> str:
     if not creative_id:
         return APIToolErrors.arg_missing("creative_id", "str", "Creative ID is required").to_json()
     data = await _get_creative_details(creative_id, access_token)
@@ -105,11 +186,101 @@ async def get_creative_details(
     return json.dumps(data, indent=2)
 
 
-@tool
-@meta_api_tool
-async def create_creative(
+def create_single_image_creative(
     account_id: str,
+    page_id: str,
     image_hash: str,
+    link_url: str,
+    creative_name: str | None = None,
+    message: str | None = None,
+    headline: str | None = None,
+    description: str | None = None,
+    call_to_action_type: str | None = None,
+) -> str:
+    """
+    Create a single image creative.
+    Args:
+        account_id (str): Meta Ads account ID
+        page_id (str): Facebook Page ID to be used for the ad
+        image_hash (str): Hash of the uploaded image
+        link_url (str): Destination URL for the ad
+        creative_name (Optional[str]): Creative name
+        message (Optional[str]): Ad copy/text
+        headline (Optional[str]): Single headline for simple ads (cannot be used with headlines)
+        description (Optional[str]): Single description for simple ads (cannot be used with descriptions)
+        call_to_action_type (Optional[str]): Call to action button type (e.g., 'LEARN_MORE', 'SIGN_UP', 'SHOP_NOW')
+
+    Returns:
+        response with created creative details
+    """
+    return create_creative_tool(
+        account_id=account_id,
+        page_id=page_id,
+        image_hash=image_hash,
+        link_url=link_url,
+        creative_name=creative_name,
+        message=message,
+        headline=headline,
+        description=description,
+        call_to_action_type=call_to_action_type,
+    )
+
+
+def create_creative_tool(
+    account_id: str,
+    page_id: str,
+    image_hash: str| List[str],
+    link_url: str,
+    creative_name: str | None = None,
+    message: str | None = None,
+    headline: str | None = None,
+    headlines: list | None = None,
+    description: str | None = None,
+    descriptions: list | None = None,
+    call_to_action_type: str | None = None,
+    instagram_actor_id: str | None = None
+) -> str:
+    """
+    Create a new ad creative using an uploaded image hash.
+    If you select LINK_CLICKS as both optimization goal and billing event, you must include call_to_action.
+
+    Args:
+        account_id (str): Meta Ads account ID
+        page_id (str): Facebook Page ID to be used for the ad
+        image_hash (str | List[str]): Hash of the uploaded image, if a list is provided, the headlines and descriptions will be used to create a dynamic creative
+        creative_name (Optional[str]): Creative name
+        link_url (Optional[str]): Destination URL for the ad
+        message (Optional[str]): Ad copy/text
+        headline (Optional[str]): Single headline for simple ads (cannot be used with headlines)
+        headlines (Optional[List[str]]): List of headlines for dynamic creative testing (cannot be used with headline), each headline must be less than or equal to 40 characters, and the number of headlines must be less than or equal to 5
+        description (Optional[str]): Single description for simple ads (cannot be used with descriptions)
+        descriptions (Optional[List[str]]): List of descriptions for dynamic creative testing (cannot be used with description), each description must be less than or equal to 125 characters, and the number of descriptions must be less than or equal to 5
+        call_to_action_type (Optional[str]): Call to action button type (e.g., 'LEARN_MORE', 'SIGN_UP', 'SHOP_NOW')
+        instagram_actor_id (Optional[str]): Optional Instagram account ID for Instagram placements
+
+    Returns:
+        JSON response with created creative details
+    """
+    return asyncio.run(_create_creative_kernel(
+        account_id=account_id,
+        image_hash=image_hash,
+        creative_name=creative_name,
+        page_id=page_id,
+        link_url=link_url,
+        message=message,
+        headline=headline,
+        headlines=headlines,
+        description=description,
+        descriptions=descriptions,
+        call_to_action_type=call_to_action_type,
+        instagram_actor_id=instagram_actor_id
+    ))
+
+
+@meta_api_tool
+async def _create_creative_kernel(
+    account_id: str,
+    image_hash: str| List[str],
     creative_name: Optional[str] = None,
     page_id: Optional[str] = None,
     link_url: Optional[str] = None,
@@ -123,28 +294,6 @@ async def create_creative(
     instagram_actor_id: Optional[str] = None,
     access_token: Optional[str] = None,
 ) -> str:
-    """
-    Create a new ad creative using an uploaded image hash.
-
-    Args:
-        account_id (str): Meta Ads account ID
-        image_hash (str): Hash of the uploaded image
-        creative_name (Optional[str]): Creative name
-        page_id (Optional[str]): Facebook Page ID to be used for the ad
-        link_url (Optional[str]): Destination URL for the ad
-        message (Optional[str]): Ad copy/text
-        headline (Optional[str]): Single headline for simple ads (cannot be used with headlines)
-        headlines (Optional[List[str]]): List of headlines for dynamic creative testing (cannot be used with headline), each headline must be less than or equal to 40 characters, and the number of headlines must be less than or equal to 5
-        description (Optional[str]): Single description for simple ads (cannot be used with descriptions)
-        descriptions (Optional[List[str]]): List of descriptions for dynamic creative testing (cannot be used with description), each description must be less than or equal to 125 characters, and the number of descriptions must be less than or equal to 5
-        dynamic_creative_spec (Optional[Dict[str, Any]]): Dynamic creative optimization settings
-        call_to_action_type (Optional[str]): Call to action button type (e.g., 'LEARN_MORE', 'SIGN_UP', 'SHOP_NOW')
-        instagram_actor_id (Optional[str]): Optional Instagram account ID for Instagram placements
-        access_token (Optional[str]): Meta API access token (optional - will use cached token if not provided)
-
-    Returns:
-        JSON response with created creative details
-    """
     if not account_id:
         return APIToolErrors.no_account_id().to_json()
     account_id = valid_account_id(account_id)
@@ -191,14 +340,19 @@ async def create_creative(
     # Traditional creative: headline and description, object_story_spec
     if headlines or descriptions:
         asset_feed_spec = {
-            "ad_formats": ["SINGLE_IMAGE"],
-            "images": [{"hash": image_hash}],
             "link_urls": [{"website_url": link_url if link_url else "https://facebook.com"}],
         }
 
+        if isinstance(image_hash, list):
+            asset_feed_spec["images"] = [{"hash": image_hash_} for image_hash_ in image_hash]
+            asset_feed_spec["ad_formats"] = ["AUTOMATIC_FORMAT"]
+        else:
+            asset_feed_spec["images"] = [{"hash": image_hash}]
+            asset_feed_spec["ad_formats"] = ["SINGLE_IMAGE"]
+
         # Handle headlines
         if headlines:
-            asset_feed_spec["headlines"] = [{"text": headline_text} for headline_text in headlines]
+            asset_feed_spec["titles"] = [{"text": headline_text} for headline_text in headlines]
             
         # Handle descriptions  
         if descriptions:
@@ -206,7 +360,7 @@ async def create_creative(
         
         # Add message as primary_texts if provided
         if message:
-            asset_feed_spec["primary_texts"] = [{"text": message}]
+            asset_feed_spec["bodies"] = [{"text": message}]
         
         # Add call_to_action_types if provided
         if call_to_action_type:
@@ -258,7 +412,8 @@ async def create_creative(
                 "details": creative_details
             }, indent=2)
         
-        return json.dumps(data, indent=2)
+        else:
+            return concise_return_message(data)
     
     except Exception as e:
         return APIToolErrors.api_call_error(
@@ -272,7 +427,7 @@ async def create_creative(
 @meta_api_tool
 async def update_creative(
     creative_id: str,
-    access_token: Optional[str] = None,
+    status: Optional[str] = None,
     creative_name: Optional[str] = None,
     message: Optional[str] = None,
     headline: Optional[str] = None,
@@ -280,7 +435,8 @@ async def update_creative(
     description: Optional[str] = None,
     descriptions: Optional[List[str]] = None,
     dynamic_creative_spec: Optional[Dict[str, Any]] = None,
-    call_to_action_type: Optional[str] = None
+    call_to_action_type: Optional[str] = None,
+    access_token: Optional[str] = None
 ) -> str:
     """
     Update an existing ad creative with new content or settings.
@@ -295,7 +451,7 @@ async def update_creative(
         description: Single description for simple ads (cannot be used with descriptions)
         descriptions: New list of descriptions for dynamic creative testing (cannot be used with description)
         dynamic_creative_spec: New dynamic creative optimization settings
-        call_to_action_type: New call to action button type
+        call_to_action_type: New call to action button type, determines the button text and header text for your ad. 
     
     Returns:
         JSON response with updated creative details
@@ -315,6 +471,9 @@ async def update_creative(
     if creative_name:
         params["name"] = creative_name
     
+    if status:
+        params["status"] = status
+
     # Choose between asset_feed_spec (dynamic creative) or object_story_spec (traditional)
     # ONLY use asset_feed_spec when user explicitly provides plural parameters (headlines/descriptions)
     if headlines or descriptions or dynamic_creative_spec:
@@ -326,15 +485,15 @@ async def update_creative(
         
         # Handle headlines
         if headlines:
-            asset_feed_spec["headlines"] = [{"text": headline_text} for headline_text in headlines]
+            asset_feed_spec["titles"] = [{"text": headline_text} for headline_text in headlines]
             
         # Handle descriptions  
         if descriptions:
             asset_feed_spec["descriptions"] = [{"text": description_text} for description_text in descriptions]
         
-        # Add message as primary_texts if provided
+        # Add message as bodies if provided
         if message:
-            asset_feed_spec["primary_texts"] = [{"text": message}]
+            asset_feed_spec["bodies"] = [{"text": message}]
         
         # Add call_to_action_types if provided
         if call_to_action_type:
@@ -380,7 +539,8 @@ async def update_creative(
                 "details": creative_details
             }, indent=2)
         
-        return json.dumps(data, indent=2)
+        else:
+            return concise_return_message(data, params=params)
     
     except Exception as e:
         return APIToolErrors.api_call_error(

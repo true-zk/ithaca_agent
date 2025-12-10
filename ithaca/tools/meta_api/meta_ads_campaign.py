@@ -16,11 +16,12 @@ Ctie from: https://developers.facebook.com/docs/marketing-api/reference/ad-campa
 """
 from typing import Optional, Dict, Any, List
 import json
+import asyncio
 
 from langchain.tools import tool
 
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
-from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors
+from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors, concise_return_message
 from ithaca.tools.meta_api.utils import (
     EFFECTIVE_STATUS_VALIDATOR, 
     STATUS_VALIDATOR, 
@@ -31,13 +32,11 @@ from ithaca.tools.meta_api.utils import (
 
 
 @tool
-@meta_api_tool
 async def get_campaigns(
     account_id: str,
     effective_status: str = "",
     after: str = "",
-    limit: int = 100,
-    access_token: Optional[str] = None
+    limit: int = 100
 ):
     """
     Get campaigns for a Meta Ads account with optional effective_status filtering.
@@ -49,37 +48,49 @@ async def get_campaigns(
             Default empty string "" means get all campaigns.
         after: Pagination cursor for next page
         limit: Maximum number of campaigns to return (default: 100)
+    """
+    return await _get_campaigns_kernel(account_id, effective_status, after, limit)
+
+
+def get_campaigns_tool(account_id: str, effective_status: str = "", after: str = "", limit: int = 100):
+    """
+    Get campaigns for a Meta Ads account with optional effective_status filtering.
+    The query fields are: "id,name,objective,status,daily_budget,lifetime_budget,buying_type,start_time,stop_time,created_time,updated_time,bid_strategy"
+    
+    Args:
+        account_id: Meta Ads account ID (for example, "act_1234567890")
+        effective_status: Filter campaigns by status (choose from '', 'ACTIVE', 'PAUSED', 'ARCHIVED', 'DELETED', 'IN_PROCESS', 'WITH_ISSUES'). 
+            Default empty string "" means get all campaigns.
+        after: Pagination cursor for next page
+        limit: Maximum number of campaigns to return (default: 100)
         access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return asyncio.run(_get_campaigns_kernel(account_id, effective_status, after, limit))
+
+
+@meta_api_tool
+async def _get_campaigns_kernel(account_id: str, effective_status: str = "", after: str = "", limit: int = 100, access_token: Optional[str] = None):
     if not account_id:
         return APIToolErrors.no_account_id().to_json()
-    
     account_id = valid_account_id(account_id)
-
     endpoint = f"{account_id}/campaigns"
     params = {
         "fields": "id,name,objective,status,daily_budget,lifetime_budget,buying_type,start_time,stop_time,created_time,updated_time,bid_strategy",
         "limit": limit
     }
-
     if effective_status:
         if not EFFECTIVE_STATUS_VALIDATOR.validate(effective_status):
             return EFFECTIVE_STATUS_VALIDATOR.error(effective_status).to_json()
         params["effective_status"] = effective_status
-    
     if after:
         params["after"] = after
-    
     data = await make_api_request(endpoint, access_token, params)
-    
-    return json.dumps(data, indent=2)
+    return concise_return_message(data, params)
 
 
 @tool
-@meta_api_tool
 async def get_campaign_details(
     campaign_id: str,
-    access_token: Optional[str] = None
 ):
     """
     Get details information about a specific Meta Ads campaign.
@@ -87,23 +98,42 @@ async def get_campaign_details(
 
     Args:
         campaign_id: Meta Ads campaign ID
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return await _get_campaign_details_kernel(campaign_id)
+
+
+def get_campaign_details_tool(campaign_id: str):
+    """
+    Get details information about a specific Meta Ads campaign.
+    The query fields are: "id,name,objective,status,daily_budget,lifetime_budget,buying_type,start_time,stop_time,created_time,updated_time,bid_strategy,special_ad_categories,special_ad_category_country,budget_remaining,configured_status"
+    
+    Args:
+        campaign_id: Meta Ads campaign ID
+    """
+    return asyncio.run(_get_campaign_details_kernel(campaign_id))
+
+
+@meta_api_tool
+async def _get_campaign_details_kernel(campaign_id: str, access_token: Optional[str] = None):
     if not campaign_id:
         return APIToolErrors.no_campaign_id().to_json()
-    
     endpoint = f"{campaign_id}"
     params = {
         "fields": "id,name,objective,status,daily_budget,lifetime_budget,buying_type,start_time,stop_time,created_time,updated_time,bid_strategy,special_ad_categories,special_ad_category_country,budget_remaining,configured_status"
     }
-
     data = await make_api_request(endpoint, access_token, params)
-    return json.dumps(data, indent=2)
-
+    if "error" in data:
+        err_msg = {
+            "error": {
+                "message": data["error"]["message"],
+                "details": data["error"]["details"]["error"]["message"]
+            }
+        }
+        return json.dumps(err_msg, indent=2)
+    return data
 
 # manipulate tools
 @tool
-@meta_api_tool
 async def create_campaign(
     account_id: str,
     campaign_name: str,
@@ -119,7 +149,6 @@ async def create_campaign(
     campaign_budget_optimization: Optional[bool] = None,
     ab_test_control_setups: Optional[List[Dict[str, Any]]] = None,
     use_adset_level_budgets: bool = False,
-    access_token: Optional[str] = None,
 ) -> str:
     """
     Create a new Meta Ads campaign for the given Meta Ads account.
@@ -135,18 +164,108 @@ async def create_campaign(
                    campaigns and will cause a 400 error. Use the outcome-based
                    values above (e.g., BRAND_AWARENESS → OUTCOME_AWARENESS).
         status: Initial campaign status (default: PAUSED)
-        special_ad_categories: List of special ad categories if applicable
-        daily_budget: Daily budget in account currency (in cents) as a string (only used if use_adset_level_budgets=False)
-        lifetime_budget: Lifetime budget in account currency (in cents) as a string (only used if use_adset_level_budgets=False)
-        buying_type: Buying type (e.g., 'AUCTION')
-        bid_strategy: Bid strategy. Must be one of: 'LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP', 'LOWEST_COST_WITH_MIN_ROAS'.
-        bid_cap: Bid cap in account currency (in cents) as a string
-        spend_cap: Spending limit for the campaign in account currency (in cents) as a string
-        campaign_budget_optimization: Whether to enable campaign budget optimization (only used if use_adset_level_budgets=False)
-        ab_test_control_setups: Settings for A/B testing (e.g., [{"name":"Creative A", "ad_format":"SINGLE_IMAGE"}])
-        use_adset_level_budgets: If True, budgets will be set at the ad set level instead of campaign level (default: False)
-        access_token: Meta API access token (optional - will use cached token if not provided)
+        special_ad_categories (optional): List of special ad categories if applicable
+        daily_budget (optional): Daily budget in account currency (in cents) as a string (only used if use_adset_level_budgets=False)
+        lifetime_budget (optional): Lifetime budget in account currency (in cents) as a string (only used if use_adset_level_budgets=False)
+        buying_type (optional): Buying type (e.g., 'AUCTION')
+        bid_strategy (optional): Bid strategy. Must be one of: 'LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP', 'LOWEST_COST_WITH_MIN_ROAS'.
+        bid_cap (optional): Bid cap in account currency (in cents) as a string
+        spend_cap (optional): Spending limit for the campaign in account currency (in cents) as a string
+        campaign_budget_optimization (optional): Whether to enable campaign budget optimization (only used if use_adset_level_budgets=False)
+        ab_test_control_setups (optional): Settings for A/B testing (e.g., [{"name":"Creative A", "ad_format":"SINGLE_IMAGE"}])
+        use_adset_level_budgets (optional): If True, budgets will be set at the ad set level instead of campaign level (default: False)
     """
+    return await _create_campaign_kernel(account_id, campaign_name, objective, status, special_ad_categories, daily_budget, lifetime_budget, buying_type, bid_strategy, bid_cap, spend_cap, campaign_budget_optimization, ab_test_control_setups, use_adset_level_budgets)
+
+
+def create_campaign_tool(
+    account_id: str, 
+    campaign_name: str, 
+    objective: str, 
+    status: str = "ACTIVE", 
+    special_ad_categories: list[str] | None = None,
+):
+    """
+    Create a new Meta Ads campaign for the given Meta Ads account.
+
+    Args:
+        account_id: Meta Ads account ID (for example, "act_1234567890")
+        campaign_name: Campaign name
+        objective: Campaign objective (ODAX, outcome-based). Must be one of:
+                   OUTCOME_AWARENESS, OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT,
+                   OUTCOME_LEADS, OUTCOME_SALES. APP_INSTALLS is not supported now.
+                   Note: Legacy objectives like BRAND_AWARENESS, LINK_CLICKS,
+                   CONVERSIONS, APP_INSTALLS, etc. are not valid for new
+                   campaigns and will cause a 400 error. Use the outcome-based
+                   values above (e.g., BRAND_AWARENESS → OUTCOME_AWARENESS).
+        status: Initial campaign status (default: ACTIVE)
+        special_ad_categories (optional): List of special ad categories ([HOUSING, FINANCIAL_PRODUCTS_SERVICES, EMPLOYMENT, ISSUES_ELECTIONS_POLITICS]) if applicable
+    """
+    return _create_campaign_kernel_warpper(
+        account_id=account_id,
+        campaign_name=campaign_name,
+        objective=objective,
+        status=status,
+        special_ad_categories=special_ad_categories,
+    )
+
+
+def _create_campaign_kernel_warpper(
+    account_id: str, 
+    campaign_name: str, 
+    objective: str, 
+    status: str, 
+    special_ad_categories: list | None = None,
+):
+    """
+    To increase the success rate of creating campaigns,
+    warp the _create_campaign_kernel with extra arguments refinement.
+
+    - objective: some are not supported now.    TODO: support it.
+        - OUTCOME_APP_PROMOTION: APP ad needs users' app store url be registered in the Meta APP, which can not automatically done.
+        - OUTCOME_ENGAGEMENT, OUTCOME_LEADS, OUTCOME_SALES: these need 'Pixel_id', which is confused. I don't know how to get it.
+
+    - buying_type = "AUCTION" for most cases.
+    - budget: use ad set level budgets.
+    - campaign_budget_optimization: disable campaign budget optimization. use ad set level budgets instead.
+    """
+    if isinstance(special_ad_categories, list):
+        for category in special_ad_categories:
+            if category not in ["HOUSING", "FINANCIAL_PRODUCTS_SERVICES", "EMPLOYMENT", "ISSUES_ELECTIONS_POLITICS"]:
+                return APIToolErrors.invalid_enum_value("special_ad_categories", ["HOUSING", "FINANCIAL_PRODUCTS_SERVICES", "EMPLOYMENT", "ISSUES_ELECTIONS_POLITICS"], category).to_json()
+
+    return asyncio.run(_create_campaign_kernel(
+        account_id, 
+        campaign_name, 
+        objective, 
+        status, 
+        special_ad_categories=special_ad_categories, 
+        buying_type="AUCTION", 
+        use_adset_level_budgets=True,
+        is_adset_budget_sharing_enabled=False,
+        campaign_budget_optimization=False,
+    ))
+
+
+@meta_api_tool
+async def _create_campaign_kernel(
+    account_id: str, 
+    campaign_name: str, 
+    objective: str, 
+    status: str, 
+    special_ad_categories: Optional[List[str]] = None, 
+    daily_budget: Optional[int] = None, 
+    lifetime_budget: Optional[int] = None, 
+    buying_type: Optional[str] = None, 
+    bid_strategy: Optional[str] = None, 
+    bid_cap: Optional[int] = None, 
+    spend_cap: Optional[int] = None, 
+    campaign_budget_optimization: Optional[bool] = None, 
+    ab_test_control_setups: Optional[List[Dict[str, Any]]] = None, 
+    use_adset_level_budgets: bool = False, 
+    is_adset_budget_sharing_enabled: bool = False,
+    access_token: Optional[str] = None
+):
     if not account_id:
         return APIToolErrors.no_account_id().to_json()
     
@@ -188,7 +307,9 @@ async def create_campaign(
             params["lifetime_budget"] = str(lifetime_budget)
         if campaign_budget_optimization is not None:
             params["campaign_budget_optimization"] = "true" if campaign_budget_optimization else "false"
-    
+    else:
+        params["is_adset_budget_sharing_enabled"] = "true" if is_adset_budget_sharing_enabled else "false"
+
     # Extra params
     if buying_type is not None:
         params["buying_type"] = buying_type
@@ -205,10 +326,20 @@ async def create_campaign(
     
     try:
         data = await make_api_request(endpoint, access_token, params, method="POST")
-
+        if "error" in data:
+            error = data["error"]["details"]["error"]
+            error_msg = {
+                "type": data["error"]["message"],
+                "title": error["error_user_title"],
+                "message": error["error_user_msg"],
+                "params_sent": params,
+            }
+            return json.dumps(error_msg, indent=2)
+        
         if use_adset_level_budgets:
             data["budget_strategy"] = "ad_set_level"
             data["note"] = "Campaign created with ad set level budgets. Set budgets when creating ad sets within this campaign."
+            data["is_adset_budget_sharing_enabled"] = is_adset_budget_sharing_enabled
         
         return json.dumps(data, indent=2)
 
@@ -423,3 +554,5 @@ async def unassociate_campaign(
             details=str(e),
             params_sent=params,
         ).to_json()
+
+

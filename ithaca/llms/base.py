@@ -15,7 +15,7 @@ class BaseLLM(ABC):
     - generate_embedding
     """
     @abstractmethod
-    async def generate(
+    def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -30,7 +30,7 @@ class BaseLLM(ABC):
         raise NotImplementedError("Subclasses must implement this method")
 
     @abstractmethod
-    async def generate_json(
+    def generate_json(
         self,
         prompt: str,
         schema: Dict[str, Any],
@@ -46,7 +46,7 @@ class BaseLLM(ABC):
         raise NotImplementedError("Subclasses must implement this method")
 
     @abstractmethod
-    async def generate_embedding(
+    def generate_embedding(
         self,
         text: Union[str, List[str]],
         **kwargs

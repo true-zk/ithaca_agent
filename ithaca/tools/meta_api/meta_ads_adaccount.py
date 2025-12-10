@@ -6,14 +6,35 @@ Meta Ads Account Tools.
 """
 from typing import Optional, List, Dict, Any
 import json
+import asyncio
 
 from langchain.tools import tool
 
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
-from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors
+from ithaca.tools.meta_api.utils import valid_account_id, APIToolErrors, concise_return_message
 
 
-async def _get_accounts_api_call(user_id: str, limit: int, access_token: Optional[str] = None) -> Dict[str, Any]:
+@tool
+async def get_ad_accounts(user_id: str = "me", limit: int = 100) -> str:
+    """
+    Get Meta Ads accounts accessible by a user.
+    
+    Args:
+        user_id: Meta user ID or "me" for the current user
+        limit: Maximum number of accounts to return (default: 200)
+    """
+    data = await _get_accounts_api_call(user_id, limit)
+    return json.dumps(data, indent=2)
+    
+
+def get_ad_accounts_tool(user_id: str = "me", limit: int = 10) -> Dict[str, Any]:
+    """Get Meta Ads accounts accessible by a user (default: `me`)"""
+    res = asyncio.run(_get_accounts_api_call(user_id, limit))
+    return res
+
+
+@meta_api_tool
+async def _get_accounts_api_call(user_id: str = "me", limit: int = 100, access_token: Optional[str] = None) -> Dict[str, Any]:
     endpoint = f"{user_id}/adaccounts"
     params = {
         "fields": "id,name,account_id,account_status,amount_spent,balance,currency,age,business_city,business_country_code",
@@ -22,24 +43,10 @@ async def _get_accounts_api_call(user_id: str, limit: int, access_token: Optiona
     data = await make_api_request(endpoint, access_token, params)
     return data
 
-@tool
-@meta_api_tool
-async def get_ad_accounts(user_id: str = "me", limit: int = 100, access_token: Optional[str] = None) -> str:
-    """
-    Get Meta Ads accounts accessible by a user.
-    
-    Args:
-        user_id: Meta user ID or "me" for the current user
-        limit: Maximum number of accounts to return (default: 200)
-        access_token: Meta API access token (optional - will use cached token if not provided)
-    """
-    data = await _get_accounts_api_call(user_id, limit, access_token)
-    return json.dumps(data, indent=2)
 
-
-@tool
-@meta_api_tool
-async def get_ad_account_info(account_id: str,access_token: Optional[str] = None) -> str:
+def get_ad_account_info_tool(
+    account_id: str,
+) -> str:
     """
     Get detailed information about a specific Meta Ads account.
 
@@ -47,6 +54,11 @@ async def get_ad_account_info(account_id: str,access_token: Optional[str] = None
         account_id: Meta Ads account ID (for example, "act_1234567890")
         access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return asyncio.run(_get_ad_account_info_kernel(account_id=account_id))
+
+
+@meta_api_tool
+async def _get_ad_account_info_kernel(account_id: str, access_token: Optional[str] = None) -> str:
     if not account_id:
         return APIToolErrors.no_account_id().to_json()
     
@@ -87,6 +99,6 @@ async def get_ad_account_info(account_id: str,access_token: Optional[str] = None
             data["dsa_required"] = False
             data["dsa_compliance_note"] = "This account is not subject to European DSA requirements"
     
-    return data 
+    return json.dumps(data, indent=2) 
 
 

@@ -10,7 +10,7 @@ import requests
 
 from ithaca.logger import logger
 from ithaca.utils import get_cache_dir
-from ithaca.settings import META_APP_ID, META_APP_SECRET, META_GRAPH_API_BASE, META_OAUTH_BASE
+from ithaca.settings import META_APP_ID, META_APP_SECRET, META_GRAPH_API_BASE, META_OAUTH_BASE, CALLBACK_SERVER_URL
 from ithaca.oauth.callback_server import start_callback_server, shutdown_callback_server
 
 
@@ -73,13 +73,22 @@ class OAuthManager:
         """
         self.app_id = app_id or META_APP_ID
         self.app_secret = app_secret or META_APP_SECRET
+        self.callback_server_url = CALLBACK_SERVER_URL or None
+        if not self.callback_server_url.endswith("/"):
+            self.callback_server_url += "/"
+
         self.redirect_uri = None
 
         self.token: Optional[OAuthToken] = None
         self.cache_file = get_cache_dir() / "meta_ads_token.json"
         self._load_cached_token()
         if self.token is None:
-            self.authenticate(force_refresh=True)
+            logger.info("No cached token found. Let user decide to authenticate or not.")
+            if input("Do you want to authenticate? (y/n): ").lower() == "y":
+                self.authenticate(force_refresh=True)
+            else:
+                logger.info("Authentication cancelled. Exiting...")
+                exit(0)
     
     def _load_cached_token(self) -> None:
         #  TODO: Token expiration check
@@ -179,6 +188,33 @@ class OAuthManager:
             logger.info("Using cached token")
             return self.token.access_token
         
+        # use outer callback server if provided
+        if self.callback_server_url:
+            self.redirect_uri = self.callback_server_url + "callback"
+            auth_url = self.get_auth_url()
+            print(f"Auth URL: {auth_url}")
+            webbrowser.open(auth_url)
+            
+            # get auth code from callback server
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                resp = requests.get(self.callback_server_url + "code")
+                if resp.status_code == 200 and resp.json()["code"]:
+                    auth_code = resp.json()["code"]
+                    logger.info(f"✅ Received authorization code: {auth_code[:10]}...")
+                    token = self.exchange_code_for_token(auth_code, redirect_uri=self.redirect_uri)
+                    if token:
+                        logger.info("✅ Authentication successful!")
+                        self.token = token
+                        self._save_cached_token()
+                        return token.access_token, token.expires_in, token.token_type
+                    else:
+                        logger.error("❌ Failed to exchange code for token")
+                        return None
+                time.sleep(0.5)
+            logger.error(f"❌ Timeout waiting for authorization ({timeout}s)")
+            return None
+        
         # Authenticate with Meta APIs
         try:
             from ithaca.oauth.callback_server import token_container
@@ -187,12 +223,11 @@ class OAuthManager:
             token_container.pop("token", None)
             
             port = start_callback_server()
-            
-            # Update redirect URI with the actual port for callback server
             self.redirect_uri = f"http://localhost:{port}/callback"
             
             # Generate the auth URL for user to authorize
             auth_url = self.get_auth_url()
+            print(f"Auth URL: {auth_url}")
             
             # Open browser with auth URL
             logger.info(f"Opening browser for authorization...")
@@ -220,7 +255,6 @@ class OAuthManager:
                         logger.info("✅ Authentication successful!")
                         self.token = token
                         self._save_cached_token()
-
                         shutdown_callback_server()
                         return token.access_token, token.expires_in, token.token_type
                     else:

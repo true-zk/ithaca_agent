@@ -15,6 +15,7 @@ import io
 import os
 from PIL import Image
 import base64
+import asyncio
 
 from langchain.tools import tool
 from pydantic.v1 import NoneIsAllowedError
@@ -26,10 +27,8 @@ from ithaca.tools.meta_api.meta_ads_creative import get_creatives_by_ad
 
 
 @tool
-@meta_api_tool
 async def get_ad_image(
     ad_id: str,
-    access_token: Optional[str] = None,
 ) -> str:
     """
     Get the image for a specific Meta Ads ad.
@@ -39,6 +38,28 @@ async def get_ad_image(
         ad_id: Meta Ads ad ID
         access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return await _get_ad_image_kernel(ad_id)
+
+
+def get_ad_image_tool(
+    ad_id: str,
+) -> str:
+    """
+    Get the image for a specific Meta Ads ad.
+    Return format: {"type": "image", "base64": image_base64, "mime_type": "image/jpeg"}
+    
+    Args:
+        ad_id: Meta Ads ad ID
+        access_token: Meta API access token (optional - will use cached token if not provided)
+    """
+    return asyncio.run(_get_ad_image_kernel(ad_id))
+
+
+@meta_api_tool
+async def _get_ad_image_kernel(
+    ad_id: str,
+    access_token: Optional[str] = None,
+) -> str:
     if not ad_id:
         return APIToolErrors.arg_missing("ad_id", "str", "Ad ID is required").to_json()
 
@@ -154,24 +175,51 @@ async def get_ad_image(
 
 
 @tool
-@meta_api_tool
 async def upload_ad_image(
     account_id: str,
     image_data: Optional[str] = None,
     image_url: Optional[str] = None,
-    image_name: Optional[str] = None,
-    access_token: Optional[str] = None,
+    image_name: Optional[str] = None
 ) -> str:
     """
-    Upload an image to a Meta Ads account from image data or image URL.
+    Upload an image to a Meta Ads account from image data or image URL (one and only one is required).
     
     Args:
         account_id: Meta Ads account ID
         image_data: base64 encoded string of the image (e.g., {"type": "image", "base64": "...", "mime_type": "image/jpeg"})
         image_url: URL of the image to upload
         image_name: Name of the image
-        access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return await _upload_ad_image_kernel(account_id, image_data, image_url, image_name)
+
+
+def upload_ad_image_tool(
+    account_id: str,
+    image_data: str | None = None,
+    image_url: str | None = None,
+    image_name: str | None = None
+) -> str:
+    """
+    Upload an image to a Meta Ads account from image data or image URL (one and only one is required).
+    If success, return the image hash.
+    
+    Args:
+        account_id: Meta Ads account ID
+        image_data: base64 encoded string of the image (e.g., {"type": "image", "base64": "...", "mime_type": "image/jpeg"})
+        image_url: URL of the image to upload
+        image_name: Name of the image
+    """
+    return asyncio.run(_upload_ad_image_kernel(account_id, image_data, image_url, image_name))
+
+
+@meta_api_tool
+async def _upload_ad_image_kernel(
+    account_id: str,
+    image_data: Optional[str] = None,
+    image_url: Optional[str] = None,
+    image_name: Optional[str] = None,
+    access_token: Optional[str] = None,
+) -> str:
     if not account_id:
         return APIToolErrors.no_account_id().to_json()
     

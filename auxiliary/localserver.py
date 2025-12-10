@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
 Local server for serving privacy policy, terms of service, and data deletion information.
-Runs on localhost:8001
+Runs on localhost:8080
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 from urllib.parse import urlparse
 import logging
+from urllib.parse import parse_qs
+from time import time
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+token_container = {"auth_code": None, "state": None, "timestamp": None}
 
 class PolicyHandler(BaseHTTPRequestHandler):
     """HTTP请求处理器"""
@@ -32,6 +36,10 @@ class PolicyHandler(BaseHTTPRequestHandler):
             self.serve_data_deletion_info()
         elif path == '/' or path == '/index':
             self.serve_index()
+        elif path == '/callback':
+            self.serve_oauth_callback()
+        elif path == '/code':
+            self.serve_auth_code()
         else:
             self.serve_404()
     
@@ -485,7 +493,7 @@ class PolicyHandler(BaseHTTPRequestHandler):
                 
                 <div class="server-info">
                     <strong>🌐 本地服务器运行中</strong><br>
-                    地址: <code>localhost:8001</code> | 状态: <span style="color: #4caf50;">●</span> 在线
+                    地址: <code>localhost:8080</code> | 状态: <span style="color: #4caf50;">●</span> 在线
                 </div>
                 
                 <p style="text-align: center; font-size: 1.2em; color: #666;">
@@ -539,6 +547,86 @@ class PolicyHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/html; charset=utf-8')
         self.end_headers()
         self.wfile.write(html_content.encode('utf-8'))
+    
+    # serve oauth callback in response['code']
+    def serve_oauth_callback(self):
+        parsed_url = urlparse(self.path)
+        params = parse_qs(parsed_url.query)
+
+        code = params.get('code', [None])[0]
+        state = params.get('state', [None])[0]
+        error = params.get('error', [None])[0]
+
+        self.send_response(200)
+        self.send_header("Content-type", "text/html; charset=utf-8")
+        self.end_headers()
+
+        global token_container
+
+        if error:
+            html = f"""
+            <html>
+            <head><title>Authorization Failed</title></head>
+            <body>
+                <h1>Authorization Failed</h1>
+                <p>Error: {error}</p>
+                <p>The authorization was cancelled or failed. You can close this window.</p>
+            </body>
+            </html>
+            """
+            logger.error(f"OAuth authorization failed: {error}")
+        elif code:
+            logger.info(f"Received authorization code: {code[:10]}...")
+
+            token_container.update({
+                "auth_code": code,
+                "state": state,
+                "timestamp": time(),
+            })
+
+            html = """
+            <html>
+            <head><title>Authorization Successful</title></head>
+            <body>
+                <h1>Authorization Successful!</h1>
+                <p>You have successfully authorized the Meta Ads application.</p>
+                <p>You can now close this window and return to your application.</p>
+                <script>
+                    // Try to close the window automatically after 2 seconds
+                    setTimeout(function() {
+                        window.close();
+                    }, 2000);
+                </script>
+            </body>
+            </html>
+            """
+            logger.info("OAuth authorization successful")
+        else:
+            html = """
+            <html>
+            <head><title>Unexpected Response</title></head>
+            <body>
+                <h1>Unexpected Response</h1>
+                <p>No authorization code or error received. Please try again.</p>
+            </body>
+            </html>
+            """
+            logger.warning("OAuth callback received without code or error")
+
+        self.wfile.write(html.encode("utf-8"))
+
+    # ✅ 新增：返回 auth_code，保证在 response['code'] 中
+    def serve_auth_code(self):
+        self.send_response(200)
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.end_headers()
+
+        response_data = {
+            "code": token_container.get("auth_code"),
+            "state": token_container.get("state"),
+            "timestamp": token_container.get("timestamp"),
+        }
+        self.wfile.write(json.dumps(response_data).encode("utf-8"))
     
     def serve_404(self):
         """返回404页面"""
@@ -600,17 +688,19 @@ class PolicyHandler(BaseHTTPRequestHandler):
         logger.info(f"{self.address_string()} - {format % args}")
 
 
-def run_server(host='localhost', port=8001):
+def run_server(host='localhost', port=8080):
     """启动服务器"""
     server_address = (host, port)
     httpd = HTTPServer(server_address, PolicyHandler)
     
     logger.info(f"🚀 Starting server on http://{host}:{port}")
     logger.info("📋 Available endpoints:")
-    logger.info("   • http://localhost:8001/ - 首页")
-    logger.info("   • http://localhost:8001/private - 隐私政策")
-    logger.info("   • http://localhost:8001/rules - 服务条款")
-    logger.info("   • http://localhost:8001/database - 数据删除指南")
+    logger.info("   • http://localhost:8080/ - 首页")
+    logger.info("   • http://localhost:8080/private - 隐私政策")
+    logger.info("   • http://localhost:8080/rules - 服务条款")
+    logger.info("   • http://localhost:8080/database - 数据删除指南")
+    logger.info("   • http://localhost:8080/callback - oauth回调地址")
+    logger.info("   • http://localhost:8080/code - get oauth authorization code in response['code']")
     logger.info("🛑 Press Ctrl+C to stop the server")
     
     try:

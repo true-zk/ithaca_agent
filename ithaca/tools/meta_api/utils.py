@@ -185,3 +185,26 @@ def valid_account_id(account_id: str) -> str:
     if not account_id.startswith("act_"):
         account_id = f"act_{account_id}"
     return account_id
+
+
+def concise_return_message(data, params: Optional[Dict] = None) -> str:
+    """Convert the data to a concise return message."""
+    if "error" in data:
+        error = data["error"]["details"]["error"]
+        if params:
+            params.pop("access_token", None)
+        if error.get("error_user_title"):
+            error_msg = {
+                "type": data["error"]["message"],
+                "title": error["error_user_title"],
+                "message": error["error_user_msg"],
+                "params_sent": params,
+            }
+        else:
+            error_msg = {
+                "type": data["error"]["message"],
+                "message": error["message"],
+                "params_sent": params,
+            }
+        return json.dumps(error_msg, indent=2)
+    return json.dumps(data, indent=2)

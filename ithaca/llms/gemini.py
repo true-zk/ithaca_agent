@@ -33,7 +33,7 @@ class GeminiLLM(BaseLLM):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3-pro-preview",
         temperature: float = 0.7,
         max_tokens: int = 4096,
         embedding_model: str = "gemini-embedding-001",
@@ -57,9 +57,10 @@ class GeminiLLM(BaseLLM):
         logger.info(f"Embedding model: {self.embedding_model}")
         logger.info(f"Time out: {self.time_out}")
 
-    async def generate(
+    def generate(
         self,
         prompt: str,
+        model: Optional[str] = None,
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -69,19 +70,23 @@ class GeminiLLM(BaseLLM):
         """
         Generate text from the LLM
         """
+        model = model or self.model
         temperature = temperature or self.temperature
         max_tokens = max_tokens or self.max_tokens
-        
+        tools = kwargs.get("tools", []) if model == "gemini-3-pro-preview" else None
+        kwargs.pop("tools", None)
+
         try:
             response = self.client.models.generate_content(
-                model=self.model,
+                model=model,
                 contents=prompt,
                 config=GenerateContentConfig(
                     system_instruction=system_prompt,
                     temperature=temperature,
                     max_output_tokens=max_tokens,
                     stop_sequences=stop_sequences,
-                    tools=kwargs.get("tools", [])
+                    tools=tools,
+                    **kwargs
                 )
             )
             return response.text
@@ -89,10 +94,11 @@ class GeminiLLM(BaseLLM):
             logger.error(f"Error generating reponse from Gemini: {e}")
             raise e
 
-    async def generate_json(
+    def generate_json(
         self,
         prompt: str,
         schema: Dict[str, Any],
+        model: Optional[str] = None,
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -102,22 +108,29 @@ class GeminiLLM(BaseLLM):
         """
         Generate JSON from the LLM
         """
-        if kwargs.get("tools"):
-            logger.warning(f"Tools are not supported for JSON generation. Ignoring tools {kwargs.get('tools')}.")
-
+        model = model or self.model
         temperature = temperature or self.temperature
         max_tokens = max_tokens or self.max_tokens
+
+        if kwargs.get("tools") and model != "gemini-3-pro-preview":
+            logger.warning(f"Tools are not supported for JSON generation. Ignoring tools {kwargs.get('tools')}.")
+        
+        tools = kwargs.get("tools", []) if model == "gemini-3-pro-preview" else None
+        kwargs.pop("tools", None)
+
         config = GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=temperature,
             max_output_tokens=max_tokens,
             stop_sequences=stop_sequences,
+            tools=tools,
             response_mime_type="application/json",
-            response_schema=schema
+            response_json_schema=schema,
+            **kwargs
         )
         try:
             response = self.client.models.generate_content(
-                model=self.model,
+                model=model,
                 contents=prompt,
                 config=config
             )
@@ -126,7 +139,7 @@ class GeminiLLM(BaseLLM):
             logger.error(f"Error generating JSON from Gemini: {e}")
             raise e
 
-    async def generate_embedding(
+    def generate_embedding(
         self,
         text: Union[str, List[str]],
         **kwargs
@@ -143,8 +156,22 @@ class GeminiLLM(BaseLLM):
         except Exception as e:
             logger.error(f"Error generating embedding from Gemini: {e}")
             raise e
+    
+    def count_tokens(self, text: str) -> int:
+        """
+        Count tokens from the LLM
+        """
+        try:
+            response = self.client.models.count_tokens(
+                model=self.model,
+                contents=text
+            )
+            return response.total_tokens
+        except Exception as e:
+            logger.error(f"Error counting tokens from Gemini: {e}")
+            raise e
 
-    # Langchain llm
+    # Langchain llm, Deprecated
     def get_langchain_llm(self, **kwargs) -> BaseChatModel:
         """
         Get Langchain LLM

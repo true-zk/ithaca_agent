@@ -3,7 +3,7 @@ Global settings
 """
 # TODO: for dev, hardcode here. This should be structured as a config file.
 
-# Cache config
+# Cache
 CACHE_DIR = None
 DB_PATH = None
 
@@ -16,6 +16,8 @@ USER_AGENT = "ithaca/1.0"
 # meta ads oauth
 META_APP_ID = "295659632199168"
 META_APP_SECRET = "7781f7c36bb73839866856340ff3c762"
+# CALLBACK_SERVER_URL = "https://slinky-workless-rueben.ngrok-free.dev/"   # use ngrok for development
+CALLBACK_SERVER_URL = "http://localhost:8080/"
 
 # New meta app can not set redirect url, so we use the old app id and secret
 # META_APP_ID = "1928081404776564"
@@ -23,3 +25,6 @@ META_APP_SECRET = "7781f7c36bb73839866856340ff3c762"
 
 # llms
 GEMINI_API_KEY = "AIzaSyBRJL6Gw3DJjn8linIKIdgXVf5DeoGFSOM"
+
+# agents
+AGENT_CONFIG_FILE = ""

@@ -225,8 +225,6 @@ def meta_api_tool(func):
 
 # TODO: I added this tool for common API call, 
 # TODO: but we need to improve it later.
-from langchain.tools import tool
-@tool
 @meta_api_tool
 async def common_api_call_tool(
     endpoint: str,

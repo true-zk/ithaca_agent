@@ -1,0 +1,230 @@
+from langchain.agents import create_agent
+from deepagents import CompiledSubAgent, create_deep_agent
+
+from ithaca.llms.gemini import gemini_llm
+from ithaca.tools.meta_api import (
+    get_ad_accounts, get_ad_account_info,
+    get_pages_for_account, search_pages_by_name,
+
+    get_campaigns, get_campaign_details,
+    create_campaign, update_campaign, delete_campaign, unassociate_campaign,
+
+    get_adsets, get_adset_details,
+    create_adset, update_adset, delete_adset,
+
+    get_ads, get_ad_details,
+    create_ad, update_ad, delete_ad,
+
+    get_creative_by_account, get_creatives_by_ad, get_creative_details,
+    create_creative, update_creative, delete_creative,
+
+    get_ad_image, upload_ad_image,
+
+    search_interests, get_interests_suggestions,
+    search_behaviors, search_demographics, search_geo_locations,
+    estimate_audience_size,
+
+    create_budget_schedule,
+)
+
+
+SYSTEM_PROMPT = """
+You are a planning and execution sub‑agent for Meta Ads marketing campaigns.
+You are invoked ONLY by a higher‑level orchestration agent (DeepAgent), not by the end user.
+Your job is to: 
+(1) design a complete, coherent marketing plan, 
+(2) execute it by creating the necessary Campaigns, Ad Sets, Ads, and Creatives via the provided tools and data from higher‑level agent.
+(3) return a clear summary of what was created (IDs, names, objectives, budgets, targeting) and any parts that failed.
+
+Scope and responsibilities:
+- Read the task description from the higher‑level agent (e.g., goals, budget, products, audiences, timeframe, channels).
+- Design a structured marketing plan that specifies:
+  - Which campaigns to create (one or more), with objectives and budget strategy.
+  - For each campaign, which ad sets to create (targeting, optimization, budget, schedule).
+  - For each ad set, which ads to create (mapping to creatives).
+  - For each ad, which creatives to create or reuse (image, text, CTA, links).
+- Then execute this plan by calling the Meta Ads API tools to actually create the objects in the correct hierarchy and order.
+- Return a clear summary of what was created (IDs, names, objectives, budgets, targeting) and any parts that failed.
+
+Available tools (high‑level intent):
+- Campaign level:
+  - create_campaign, update_campaign, delete_campaign, get_campaigns, get_campaign_details
+- Ad set level:
+  - create_adset, update_adset, delete_adset, get_adsets, get_adset_details
+- Ad level:
+  - create_ad, update_ad, delete_ad, get_ads, get_ad_details
+- Creative / asset level:
+  - upload_ad_image, create_creative, update_creative, delete_creative, get_creative_by_account, get_creatives_by_ad, get_creative_details
+- Targeting & audience:
+  - search_interests, get_interests_suggestions, search_behaviors, search_demographics, search_geo_locations, estimate_audience_size
+- Budget / schedule helper:
+  - create_budget_schedule
+- Account & page helpers (when needed):
+  - get_ad_accounts, get_ad_account_info, get_pages_for_account, search_pages_by_name
+
+Meta Ads hierarchy:
+- Ad Account → Campaign → Ad Set → Ad → Creative
+- Ad Account → Page
+
+Planning principles:
+- Always design the full structure first (internally) before executing:
+  - Decide how many campaigns and their objectives (e.g., OUTCOME_AWARENESS, OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT, OUTCOME_LEADS, OUTCOME_SALES, OUTCOME_APP_PROMOTION) based on the task goal.
+  - Decide whether to use campaign‑level budget (CBO) or ad‑set‑level budgets (ABO) for each campaign:
+    - If you plan to control budgets at the campaign level, set use_adset_level_budgets = False and provide daily_budget or lifetime_budget on the campaign; then do NOT set budgets on ad sets.
+    - If you plan to control budgets at the ad set level, set use_adset_level_budgets = True and omit campaign‑level budgets; then set daily_budget or lifetime_budget on each ad set.
+  - Ensure consistency between campaign objective and ad set optimization_goal / billing_event / promoted_object (for example, app campaigns must have proper promoted_object and destination_type).
+- Respect the hierarchy and create objects in order:
+  1) Campaign(s) → 2) Ad Set(s) inside each campaign → 3) Creative(s) → 4) Ad(s) that reference those creatives.
+- Prefer creating new objects instead of modifying or deleting existing ones, unless the higher‑level agent explicitly requests updates or cleanup.
+
+Execution and error‑handling:
+- Many Meta Ads API calls can fail due to invalid objectives, budgets, targeting, missing fields, or policy constraints.
+- For each object (campaign, ad set, creative, ad):
+  - Construct parameters carefully using the tool docstrings in this prompt and any hints from earlier error messages.
+  - If a call fails, read the error message from the tool response (APIToolErrors) and adjust parameters accordingly (for example, fix objective, remove unsupported fields, provide required fields).
+  - Retry sensibly up to 2–3 times for that object with corrected parameters before giving up.
+  - Do NOT blindly retry with the same parameters.
+- If a critical step fails (e.g., campaign cannot be created even after retries), stop creating dependent children (ad sets/ads under that campaign), and clearly report the failure and why.
+- When possible, reuse helpers like search_interests, search_geo_locations, estimate_audience_size to make reasonable targeting settings instead of leaving targeting empty.
+
+Interaction rules:
+- You only interact with the orchestration agent (DeepAgent) and the world via tools.
+- If you need some information from the higher‑level agent, you should ask the orchestration agent (DeepAgent) for it.
+- After you have created the marketing plan, you should return a clear summary of what was created (IDs, names, objectives, budgets, targeting).
+
+"""
+
+
+PLAN_TOOLS = [
+    # account / page helpers
+    get_ad_accounts, get_ad_account_info,
+    get_pages_for_account, search_pages_by_name,
+
+    # campaign
+    get_campaigns, get_campaign_details,
+    create_campaign, update_campaign, delete_campaign, unassociate_campaign,
+
+    # adset
+    get_adsets, get_adset_details,
+    create_adset, update_adset, delete_adset,
+
+    # creative / image
+    upload_ad_image,
+    get_creative_by_account, get_creatives_by_ad, get_creative_details,
+    create_creative, update_creative, delete_creative,
+    get_ad_image,
+
+    # ad
+    get_ads, get_ad_details,
+    create_ad, update_ad, delete_ad,
+
+    # targeting & budget helpers
+    search_interests, get_interests_suggestions,
+    search_behaviors, search_demographics, search_geo_locations,
+    estimate_audience_size,
+    create_budget_schedule,
+]
+
+
+class PlanSubAgent:
+    """
+    A subagent that designs and executes a full Meta Ads marketing plan
+    (campaigns, ad sets, ads, creatives) based on a high-level instruction.
+    """
+    def __init__(self):
+        self.name = "plan_subagent"
+        self.description = (
+            "Designs a complete Meta Ads marketing plan (campaigns/ad sets/ads/creatives) "
+            "and executes it using Meta API tools, with hierarchy and budget consistency."
+            "Need input: task description, ad account id, page id, image urls or image data to use etc."
+        )
+        self.llm = gemini_llm.get_langchain_llm(max_tokens=153600)
+        self.deep_llm = gemini_llm.get_langchain_llm(model="gemini-2.5-pro", max_tokens=153600)
+        self.tools = PLAN_TOOLS
+
+        self.agent = self._create_agent()
+        self.deep_agent = self._create_deep_agent()
+        self.compiled_sub_agent = self._compiled_agent()
+
+    def _create_agent(self):
+        return create_agent(
+            model=self.llm,
+            tools=self.tools,
+            system_prompt=SYSTEM_PROMPT,
+        )
+
+    def _compiled_agent(self, deep: bool = False):
+        return CompiledSubAgent(
+            name=self.name,
+            description=self.description,
+            runnable=self.agent if not deep else self.deep_agent,
+        )
+
+    def _create_deep_agent(self):
+
+        from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
+        from langgraph.store.memory import InMemoryStore
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        def make_backend(runtime):
+            return CompositeBackend(
+                default=StateBackend(runtime),  # Ephemeral storage
+                routes={
+                    "/memories/": StoreBackend(runtime)  # Persistent storage
+                }
+            )
+
+        # from langchain.agents.middleware import LLMToolSelectorMiddleware
+        # middleware = []
+        # middleware.append(LLMToolSelectorMiddleware(
+        #     model=self.tool_selector_model,
+        #     system_prompt=TOOL_SELECTOR_SYSTEM_PROMPT,
+        #     max_tools=self.tool_selector_max_tools,
+        #     always_include=self.tool_selector_always_include,
+        # ))
+        
+        agent = create_deep_agent(
+            model=self.deep_llm,
+            tools=self.tools,
+            system_prompt=SYSTEM_PROMPT,
+            checkpointer=InMemorySaver(),
+            store=InMemoryStore(),
+            backend=make_backend,
+            # middleware=middleware,
+        )
+        return agent
+
+    def native_gemini_generate(self, prompt: str):
+        from google.genai import types
+        config = types.GenerateContentConfig(
+            tools=self.tools,
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0.7,
+            max_output_tokens=153600,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=8192
+            )
+        )
+        res = gemini_llm.client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=prompt,
+            config=config
+        )
+        return res.text, res
+
+    def native_gemini_chat(self):
+        from google.genai import types
+        config = types.GenerateContentConfig(
+            tools=self.tools,
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0.7,
+            max_output_tokens=153600,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=8192
+            )
+        )
+        chatbot = gemini_llm.client.chats.create(
+            model="gemini-2.5-pro",
+            config=config
+        )
+        return chatbot

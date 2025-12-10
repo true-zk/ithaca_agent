@@ -1,0 +1,247 @@
+Meta Ads Ad Set Creation – LLM Usage Guide for `create_adset_tool`
+
+1. Tool Overview
+- Scope limitation (important): for now, ONLY create simple link-click style ad sets in this system.
+  - Always set `optimization_goal = "LINK_CLICKS"` (or another LINK_CLICKS-compatible goal only if explicitly required).
+  - Do NOT use `APP_INSTALLS` or other complex app-promotion optimization goals here.
+- Use the `create_adset_tool` (sync wrapper around `_create_adset_kernel`) to create a new Meta Ads ad set under an existing campaign.
+- Always respect the parent campaign’s objective and ODAX mapping from Meta’s docs:
+  - Campaign objective validation: https://developers.facebook.com/docs/marketing-api/reference/ad-campaign-group#objective-validation
+  - ODAX objectives mapping: https://developers.facebook.com/docs/marketing-api/reference/ad-campaign#odax
+- The Graph API will reject ad sets whose optimization goal, billing event, or promoted_object are incompatible with the campaign objective.
+
+2. Function Signature
+Call the tool conceptually as:
+- name: `create_adset_tool`
+- required arguments:
+  - `account_id` (str): Meta Ads account ID, e.g. `"act_1234567890"`.
+  - `campaign_id` (str): Existing campaign ID this ad set belongs to. Must be compatible with the ad set’s optimization goal according to the campaign objective.
+  - `adset_name` (str): Human-readable ad set name.
+  - `optimization_goal` (str): Optimization goal string. In this system, always prefer `"LINK_CLICKS"` and avoid `APP_INSTALLS`. It must still be a valid enum (checked by `enum_arg_validators["optimization_goal"]`) and allowed for the campaign’s objective per ODAX.
+  - `billing_event` (str): Billing event. Must be a valid enum (checked by `enum_arg_validators["billing_event"]`) and compatible with the optimization goal.
+- optional arguments:
+  - `status` (str, default `"PAUSED"`): Initial status. Must pass `enum_arg_validators["status"]` (e.g. `PAUSED`, `ACTIVE` depending on validator setup).
+  - `daily_budget` (int | None): Daily budget in minor units (e.g. cents). Converted to string before API call.
+  - `lifetime_budget` (int | None): Lifetime budget in minor units. Also converted to string.
+  - `targeting` (dict | None): Targeting spec. If omitted or falsy, the tool uses a default:
+      {
+        "age_min": 18,
+        "age_max": 65,
+        "geo_locations": {"countries": ["US"]},
+        "targeting_automation": {"advantage_audience": 1}
+      }
+    For precise audiences, provide a full, valid Marketing API targeting object.
+  - `bid_amount` (int | None): Bid amount in minor units (converted to string). Use when the bid strategy requires a cap.
+  - `bid_strategy` (str | None): Bid strategy enum checked by `enum_arg_validators["bid_strategy"]` (e.g. LOWEST_COST_WITHOUT_CAP, LOWEST_COST_WITH_BID_CAP, COST_CAP, etc., depending on validator configuration).
+  - `start_time` (str | None): Start time in ISO 8601, e.g. `"2025-01-01T09:00:00-0800"`.
+  - `end_time` (str | None): End time in ISO 8601.
+  - `dsa_beneficiary` (str | None): DSA beneficiary string for EU compliance. Only use when it is known to be required and supported.
+  - `promoted_object` (dict | None): Required and strictly validated when `optimization_goal == "APP_INSTALLS"`. See section 4.
+  - `destination_type` (str | None): Destination type string, validated by `enum_arg_validators["destination_type"]`. Should be consistent with campaign objective and ad format (e.g. values similar to APP_STORE, DEEPLINK, APP_INSTALL, ON_AD, depending on validator).
+  - `is_dynamic_creative` (bool | None): If provided, sent as `"true"`/`"false"` to API. Required when using dynamic creatives in associated ads.
+
+3. Required Parameter Rules
+- The tool returns an error JSON if any of the following are empty:
+  - `account_id`
+  - `campaign_id`
+  - `adset_name`
+  - `optimization_goal`
+  - `billing_event`
+- Always provide non-empty strings for these fields.
+- System-level requirement in this project: every ad set MUST include a budget, because ad sets are treated as the basic scheduling unit.
+  - When calling this tool, ALWAYS provide either:
+    - `daily_budget` (recommended), OR
+    - `lifetime_budget`
+  - Do NOT create ad sets without a budget in this system.
+
+4. APP_INSTALLS and promoted_object
+- For now, do not create adsets with these config.
+
+5. Enum Validation
+- The tool validates the following fields using `enum_arg_validators`:
+  - `optimization_goal`
+  - `billing_event`
+  - `status`
+  - `bid_strategy`
+  - `destination_type`
+- If a value is provided and fails validation, the tool returns an error JSON including the invalid value and parameter name.
+- The LLM must only use enum strings that:
+  - Are valid Meta Marketing API enums.
+  - Are allowed for the chosen campaign objective and ODAX mapping from Meta docs:
+    - Campaign objective validation: https://developers.facebook.com/docs/marketing-api/reference/ad-campaign-group#objective-validation
+    - ODAX objectives mapping: https://developers.facebook.com/docs/marketing-api/reference/ad-campaign#odax
+
+6. Targeting Behavior
+- If `targeting` is not provided or is falsy, the tool uses a default broad US Advantage+ audience:
+  - ages 18–65
+  - countries: US
+  - `targeting_automation.advantage_audience = 1`
+- This is safe for basic creation but may be too broad. Provide a complete targeting spec when specific audience control is required.
+
+7. Budgets and Bidding
+- Budgets:
+  - `daily_budget` and `lifetime_budget` must be integers in minor units (e.g. cents).
+  - They are automatically converted to strings for the Graph API.
+  - Typically provide either `daily_budget` OR `lifetime_budget`, not both, unless you know Meta supports that combination for the specific case.
+- Bidding:
+  - `bid_amount` is also an integer in minor units and is converted to string.
+  - `bid_strategy` must be valid for the campaign’s buying type and objective, and pass the enum validator.
+  - If uncertain, you can omit `bid_strategy` to let account defaults apply, as long as that meets the campaign’s requirements.
+
+8. Campaign Objective Compatibility (ODAX)
+- Meta enforces that each campaign has a single objective and that all ad sets under it use compatible settings.
+- The tool itself does not fetch or check the campaign objective, but the Graph API will reject incompatible inputs.
+- Before choosing `optimization_goal` (and related fields such as `promoted_object`), the LLM should conceptually:
+  - Infer or know the campaign’s ODAX objective (e.g. OUTCOME_AWARENESS, OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT, OUTCOME_LEADS, OUTCOME_SALES).
+  - Select an `optimization_goal` and `billing_event` pair that is valid for that objective, as described in Meta’s ODAX documentation:
+    - https://developers.facebook.com/docs/marketing-api/reference/ad-campaign-group#objective-validation
+    - https://developers.facebook.com/docs/marketing-api/reference/ad-campaign#odax
+
+9. Error Handling Expectations
+- The tool always returns JSON-formatted strings.
+- On errors, it uses `APIToolErrors` helpers to include:
+  - A clear top-level message (e.g. missing parameter, invalid enum, missing APP_INSTALLS promoted_object, invalid app store URL).
+  - The parameter name and value that caused the error.
+  - For DSA-related issues, possible extra fields like:
+    - `"permission_required": true`
+    - `"manual_setup_required": true`
+    - `"dsa_required": true`
+- The LLM should:
+  - Read the message and details.
+  - Correct the invalid or missing argument (e.g. fix enum name, add promoted_object fields, adjust destination_type) and retry when it is a user/input error.
+  - Avoid blindly retrying when the error is about permissions or unsupported parameters (e.g. unsupported `dsa_beneficiary`).
+
+10. Minimal Safe Patterns
+10.1 LINK_CLICKS ad set (recommended pattern in this system)
+- This is the primary and recommended pattern. Create a simple link-click style ad set compatible with a traffic/awareness-like campaign, with an explicit budget (since the ad set is the basic scheduling unit).
+- Provide:
+  - `account_id`
+  - `campaign_id`
+  - `adset_name`
+  - `optimization_goal = "LINK_CLICKS"` # recommended
+  - `billing_event` (e.g. `"IMPRESSIONS"` or `"LINK_CLICKS"`)
+  - One of: `daily_budget` or `lifetime_budget` with realistic values (e.g. `daily_budget = 1000` for $10.00). This budget is mandatory in this system.
+  - `bid_strategy` and `bid_amount`
+    - `bid_strategy` is recommended as "LOWEST_COST_WITHOUT_CAP" or "COST_CAP"
+    - "LOWEST_COST_WITHOUT_CAP" does not need "bid_amount"
+    - "COST_CAP" should set a right "bid_amount"
+  - `targeting` (defaults to broad US audience)
+- Omit (unless needed):
+  - `dsa_beneficiary`, `promoted_object`, `destination_type`, `is_dynamic_creative`
+
+11. Targeting field rules (Meta Marketing API)
+
+- General behavior
+  - "targeting" is an object composed of many subfields (geo, device, audiences, demographics, etc.).
+  - Values inside one field are usually ORed (for example, multiple user_os values).
+  - Different fields are usually ANDed together (for example, geo_locations + ages + custom_audiences).
+  - If you use "flexible_spec", "targeting" must also contain at least one of:
+    - geo_locations
+    - custom_audiences
+    - product_audience_specs
+    - dynamic_audience_ids
+
+- geo_locations
+  - Provides geographic constraints such as country, region, city, zip.
+  - Typical minimal example:
+    - "geo_locations": { "countries": ["US"] }
+
+- user_os (operating system)
+  - Type: array, required for mobile-device targeting.
+  - Values must come from Meta's OS options:
+    - Examples: ["iOS"], ["Android"], ["Android_ver_4.2_and_above"], ["iOS_ver_8.0_to_9.0"], etc.
+  - Some combinations are invalid (for example mixing a generic OS with version-specific values of the other OS).
+
+- user_device / excluded_user_device
+  - Type: array, optional.
+  - Devices must be compatible with user_os.
+  - user_device specifies which devices to include.
+  - excluded_user_device specifies which devices to exclude.
+
+- wireless_carrier
+  - Type: array, optional.
+  - Common usage: ["Wifi"] to target users currently on Wi-Fi.
+
+- custom_audiences / excluded_custom_audiences
+  - Type: array.
+  - Elements can be:
+    - Audience IDs: [123, 456]
+    - Or objects with "id": [{"id": 123}, {"id": 456}]
+  - custom_audiences: audiences to include.
+  - excluded_custom_audiences: audiences to exclude.
+  - Each side can contain up to 500 entries.
+
+- locales
+  - Type: array, optional.
+  - Values are locale IDs (for example, 5 for German).
+  - Used to refine language/locale targeting; limit is 50.
+
+- targeting_automation and Advantage+ / suggestions
+  - "targeting_automation" controls automatic expansion and suggestions.
+  - Advantage+ audience (advantage_audience):
+    - "targeting_automation": { "advantage_audience": 1 }   # enable
+    - "targeting_automation": { "advantage_audience": 0 }   # disable
+    - Some accounts or flows require this flag to be explicitly 0 or 1; omitting it can cause "must set Advantage Audience flag" errors.
+  - Individual settings:
+    - "geo" suggestion:
+      - "targeting_automation": { "individual_setting": { "geo": 1 or 0 } }
+    - "age" suggestion:
+      - Requires age_range plus age_min.
+      - "targeting_automation": { "individual_setting": { "age": 1 } }
+    - "gender" suggestion:
+      - Requires genders field.
+      - "targeting_automation": { "individual_setting": { "gender": 1 } }
+  - Age/gender suggestions are currently limited to certain objectives (such as OUTCOME_SALES and APP_INSTALLS) and may broaden delivery beyond the specified ranges when it improves performance.
+
+- Advanced demographic and broad category targeting
+  - Additional fields can be used for life events, relationship status, education, workplace, broad categories, etc.
+  - For broad categories (BCT), use "user_adclusters":
+    - "user_adclusters": [{"id": 6002714885172, "name": "Cooking"}]
+  - These fields are optional and must follow the IDs returned by Meta's targeting search APIs.
+
+- Special Ad Category and other restrictions
+  - For housing, employment, and credit ads, especially in or targeting the US, many targeting options are restricted.
+  - Always check Meta's Special Ad Category and Targeting Restrictions documentation when dealing with those categories.
+
+- Practical default and safe patterns
+  - For this system, when targeting is omitted, the tool will use:
+    - "age_min": 18
+    - "age_max": 65
+    - "geo_locations": {"countries": ["US"]}
+    - "targeting_automation": {"advantage_audience": 1}
+  - When you need more precise control, provide a full, valid targeting object that follows the rules above and Meta’s official docs:
+    - https://developers.facebook.com/docs/marketing-api/audiences/reference/advanced-targeting
+
+Valid arg examples:
+1. Simple adset with "LOWEST_COST_WITHOUT_CAP" bid_strategy
+{"account_id": "act_xxx",
+"campaign_id": "xxxx",
+"adset_name": "AAA Test Ad Set with Ad Set Level Budgets",
+"optimization_goal": "LINK_CLICKS",
+"billing_event": "IMPRESSIONS",
+"status": "ACTIVE",
+"daily_budget": 1001,
+"bid_strategy": "LOWEST_COST_WITHOUT_CAP" # "LOWEST_COST_WITHOUT_CAP" do not need bid_amount
+}
+2. "COST_CAP" bid_strategy adset
+{
+"account_id": "act_368401904774563",
+"campaign_id": "120237595006130156",
+"adset_name": "AAA Test Ad Set with Ad Set Level Budgets",
+"optimization_goal": "LINK_CLICKS",
+"billing_event": "IMPRESSIONS",
+"status": "ACTIVE",
+"lifetime_budget": 100000,
+"bid_strategy": "COST_CAP", # if "COST_CAP", "billing_event" must be "IMPRESSIONS"
+"end_time": "2025-12-12T00:00:00-0000",
+"bid_amount": 100,  # COST_CAP need bid_amount
+"targeting": {
+    "age_min": 18,
+    "age_max": 65,
+    "geo_locations": {"countries": ["US", "CN"]},
+    "targeting_automation": {"advantage_audience": 1}
+}
+}
+
+By following the rules above, the LLM can reliably call `create_adset_tool` to create ad sets for specific campaigns while minimizing invalid-enum, missing-field, or objective-compatibility errors.
+

@@ -9,20 +9,18 @@ Cite from: https://developers.facebook.com/docs/graph-api/reference/page/#Creati
 """
 from typing import Optional, Dict, Any, List
 import json
+import asyncio
 
 from langchain.tools import tool
 
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
-from ithaca.tools.meta_api.utils import APIToolErrors, valid_account_id
+from ithaca.tools.meta_api.utils import APIToolErrors, valid_account_id, concise_return_message
 from ithaca.tools.meta_api.utils import STATUS_VALIDATOR
 
 
-@tool
-@meta_api_tool
-async def get_pages_for_account(
-    account_id: str,
-    access_token: Optional[str] = None,
-):
+def get_pages_for_account_tool(
+    account_id: str = "me"
+) -> str:
     """
     Get pages associated with a Meta Ads account.
 
@@ -30,6 +28,14 @@ async def get_pages_for_account(
         account_id: Meta Ads account ID or "me" for the current user
         access_token: Meta API access token (optional - will use cached token if not provided)
     """
+    return asyncio.run(_get_pages_for_account_kernel(account_id))
+
+
+@meta_api_tool
+async def _get_pages_for_account_kernel(
+    account_id: str,
+    access_token: Optional[str] = None,
+):
     if not account_id:
         return json.dumps({"error": "No account ID provided"}, indent=2)
     
@@ -42,7 +48,7 @@ async def get_pages_for_account(
             }
             
             user_pages_data = await make_api_request(endpoint, access_token, params)
-            return json.dumps(user_pages_data, indent=2)
+            return concise_return_message(user_pages_data, params)
         except Exception as e:
             return APIToolErrors.api_call_error(
                 message="Failed to get user pages",
@@ -227,7 +233,7 @@ async def get_pages_for_account(
         ).to_json()
 
 
-async def _discover_pages_for_account(account_id: str, access_token: str) -> dict:
+async def _discover_pages_for_account(account_id: str, access_token: Optional[str] = None) -> dict:
     """
     Internal function to discover pages for an account using multiple approaches.
     Returns the best available page ID for ad creation.
@@ -347,6 +353,7 @@ async def _discover_pages_for_account(account_id: str, access_token: str) -> dic
         }
 
 
+@meta_api_tool
 async def _search_pages_by_name_core(account_id: str, search_term: Optional[str] = None, access_token: Optional[str] = None) -> str:
     """
     Core logic for searching pages by name.
@@ -414,11 +421,9 @@ async def _search_pages_by_name_core(account_id: str, search_term: Optional[str]
 
 
 @tool
-@meta_api_tool
 async def search_pages_by_name(
     account_id: str,
-    search_term: Optional[str] = None,
-    access_token: Optional[str] = None,
+    search_term: Optional[str] = None
 ) -> str:
     """
     Search for pages by name within an account.
@@ -426,15 +431,21 @@ async def search_pages_by_name(
     Args:
         account_id: Meta Ads account ID (format: act_XXXXXXXXX)
         search_term: Search term to find pages by name (optional - returns all pages if not provided)
-        access_token: Meta API access token (optional - will use cached token if not provided)
     
     Returns:
         JSON response with matching pages
     """
     if not account_id:
         return APIToolErrors.no_account_id().to_json()
-    result = await _search_pages_by_name_core(access_token, account_id, search_term)
+    result = await _search_pages_by_name_core(account_id, search_term)
     return result
+
+
+def get_pages_by_name_tool(
+    account_id: str,
+    search_term: str,
+) -> dict:
+    return asyncio.run(_search_pages_by_name_core(account_id, search_term))
 
 
 # TODO: clean up internal functions to get pages for a Meta Ads account

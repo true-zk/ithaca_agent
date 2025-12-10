@@ -11,13 +11,10 @@ Meta Ads Targeting Tools.
 from typing import Optional, Dict, Any, List
 import json
 
-from langchain.tools import tool
-
 from ithaca.tools.meta_api.meta_ads_api import make_api_request, meta_api_tool
 from ithaca.tools.meta_api.utils import APIToolErrors, valid_account_id, OPTIMIZATION_GOAL_VALIDATOR
 
 
-@tool
 @meta_api_tool
 async def search_interests(
     query: str,
@@ -45,7 +42,6 @@ async def search_interests(
     return json.dumps(data, indent=2)
 
 
-@tool
 @meta_api_tool
 async def get_interests_suggestions(
     interest_list: List[str],
@@ -73,7 +69,6 @@ async def get_interests_suggestions(
     return json.dumps(data, indent=2)
 
 
-@tool
 @meta_api_tool
 async def search_behaviors(
     limit: int = 50,
@@ -101,7 +96,6 @@ async def search_behaviors(
     return json.dumps(data, indent=2)
 
 
-@tool
 @meta_api_tool
 async def search_demographics(
     demographic_class: str = "demographics",
@@ -132,7 +126,6 @@ async def search_demographics(
     return json.dumps(data, indent=2)
 
 
-@tool
 @meta_api_tool
 async def search_geo_locations(
     query: str,
@@ -173,7 +166,6 @@ async def search_geo_locations(
 
 # TODO: for now use 'reachestimate' api only, 
 # TODO: in the future we can use 'delivery_estimate' api for more comprehensive estimation.
-@tool
 @meta_api_tool
 async def estimate_audience_size(
     account_id: str,
