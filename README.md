@@ -1,178 +1,173 @@
 # Ithaca
 
-Ithaca 是一个基于 LLM Agents 的 Meta Ads 营销自动化平台，能够自动创建、执行和评估营销计划。
+Ithaca is an LLM‑agent–driven automation platform for Meta Ads that can automatically research products, generate marketing plans, create campaigns, and iteratively optimize performance.
 
-## 项目结构
+## Project Structure
 
-### 核心目录
+### Core directory
 
-#### `/ithaca/` - 主要代码目录
+#### `/ithaca/` – main code
 
-**主要文件：**
+**Key files:**
 
-- `main.py` - 系统主入口，提供命令行接口启动调度器
-- `scheduler.py` - 核心调度器，支持后台运行和前台运行模式
-- `scheduler_cli.py` - 调度器命令行控制工具
-- `settings.py` - 全局配置文件，包含 API 密钥和系统设置
-- `utils.py` - 通用工具函数，如缓存目录管理
-- `logger.py` - 全局日志系统
+- `main.py` – Minimal entry point used in examples/tests for running a demo workflow.
+- `settings.py` – Global configuration, including API keys, OAuth callback URL and system settings.
+- `utils.py` – Common utility helpers.
+- `logger.py` – Central logging setup.
 
-#### `/ithaca/agents/` - AI 智能体模块
+#### `/ithaca/agents/` – AI agent modules
 
-**核心文件：**
+**Core files:**
 
-- `agent_types.py` - 定义营销计划数据模型和类型
-- `holisticagent.py` - 全能营销智能体，负责端到端营销计划创建和执行
-- `evalagent.py` - 评估智能体，负责营销计划效果评估和优化
+- `research_agent.py` – Research agent that uses web search tools to understand the product and market, returning keywords, image URLs and a research summary.
+- `plan_agent.py` – Plan agent that turns research results and account information into a full Meta Ads marketing plan (campaign, ad sets, creatives, ads) via tools.
+- `update_agent.py` – Update agent that periodically adjusts the running plan based on performance data.
+- `summary_agent.py` – Summary agent that converts a finished plan into a structured marketing history.
+- `base.py`, `agent_factory.py` – Base abstractions and factories for building and composing agents.
 
-**子智能体 (`/subagents/`)：**
+#### `/ithaca/tools/` – Tool integration modules
 
-- `plan_agent.py` - 计划制定智能体
-- `research_agent.py` - 市场调研智能体
-- `execute_agent.py` - 执行智能体
-- `evaluate_agent.py` - 评估智能体
+**General tools:**
 
-#### `/ithaca/tools/` - 工具集成模块
+- `webtools.py` – Web content fetching and analysis utilities.
+- `random.py` – Random helper utilities used in experiments and tests.
 
-**核心工具：**
+**Meta API integration (`/meta_api/`):**
 
-- `webtools.py` - 网页内容抓取和分析工具
-- `random.py` - 随机数生成工具
+- `meta_ads_api.py` – Core Meta Ads API client.
+- `utils.py` – API helper functions, error handling and shared utilities.
+- `meta_ads_*.py` – Functional modules wrapping specific Meta Ads features:
+  - `meta_ads_adaccount.py` – Ad account management.
+  - `meta_ads_campaign.py` – Campaign management.
+  - `meta_ads_adset.py` – Ad set management.
+  - `meta_ads_ad.py` – Ad management.
+  - `meta_ads_creative.py` – Creative management.
+  - `meta_ads_ad_image.py` – Image upload and management.
+  - `meta_ads_targeting.py` – Audience targeting.
+  - `meta_ads_insights.py` – Insights and reporting.
+  - `meta_ads_budget.py` – Budget helpers.
+  - `meta_ads_page.py` – Page management.
+  - `meta_ads_audience_estimate.py` – Audience size estimation.
 
-**Meta API 集成 (`/meta_api/`)：**
+#### `/ithaca/llms/` – LLM integration
 
-- `meta_ads_api.py` - Meta Ads API 核心接口
-- `utils.py` - API 工具辅助函数和错误处理
-- `meta_ads_*.py` - 各种 Meta Ads 功能模块：
-  - 广告账户管理 (`meta_ads_adaccount.py`)
-  - 广告系列管理 (`meta_ads_campaign.py`)
-  - 广告组管理 (`meta_ads_adset.py`)
-  - 广告管理 (`meta_ads_ad.py`)
-  - 创意管理 (`meta_ads_creative.py`)
-  - 图片管理 (`meta_ads_ad_image.py`)
-  - 受众定位 (`meta_ads_targeting.py`)
-  - 数据洞察 (`meta_ads_insights.py`)
-  - 预算管理 (`meta_ads_budget.py`)
-  - 页面管理 (`meta_ads_page.py`)
-  - 受众估算 (`meta_ads_audience_estimate.py`)
+- `base.py` – Base abstraction for calling LLMs.
+- `gemini.py` – Google Gemini integration used by the agents.
 
-#### `/ithaca/db/` - 数据库模块
+#### `/ithaca/oauth/` – OAuth modules
 
-- `ithacadb.py` - 数据库操作接口，支持 SQLite
-- `history.py` - 营销历史数据模型
+- `auth.py` – Meta API OAuth 2.0 authentication manager (login, token storage and refresh).
+- `callback_server.py` – Local callback server to complete the OAuth flow.
 
-#### `/ithaca/llms/` - 大语言模型集成
+#### `/ithaca/workflow/` – Workflow modules
 
-- `base.py` - LLM 基础抽象类
-- `gemini.py` - Google Gemini 模型集成
+- `base.py` – Base workflow abstraction with session handling.
+- `data_type.py` – Typed data models for Meta Ads entities, marketing plans, workflow status and history.
+- `demo_workflow.py` – Demo end‑to‑end workflow that combines agents and tools to run a full marketing loop for a single product.
 
-#### `/ithaca/oauth/` - OAuth 认证模块
+#### `/ithaca/skills/`
 
-- `auth.py` - Meta API OAuth 认证管理
-- `callback_server.py` - OAuth 回调服务器
+- `create_adsets.txt` – Prompt/skill template used by the plan agent when creating ad sets.
 
-#### `/ithaca/workflow/` - 工作流模块
+### Other directories
 
-- `base.py` - 工作流基础抽象类
-- `holistic_workflow.py` - 全能营销工作流实现
+- `auxiliary/` – Helper server for Meta Ads requirements.
+- `devdocs/` – Internal design notes, images and documentation for development.
+- `test/` – Pytest test cases and executable examples for agents, tools, workflows and OAuth.
+- `bk/` – Legacy/backup versions of early modules kept for reference.
 
-## 功能特性
+## Features
 
-### 🤖 智能营销计划生成
+### 🤖 Intelligent marketing plan generation
 
-- 基于产品信息自动生成 3-5 个营销计划
-- 支持历史数据分析和优化建议
-- 集成 Meta Ads API 实现自动化广告投放
+- Automatically researches products based on basic information (name, URL, images).
+- Generates structured Meta Ads marketing plans, including campaign, ad sets, creatives and ads.
+- Uses Meta Ads API tools to create and execute campaigns on real ad accounts.
 
-### 📊 营销效果评估
+### 📊 Campaign performance evaluation and optimization
 
-- 自动收集广告投放数据
-- 智能评估营销计划效果（1-10 分评分）
-- 提供优化建议和改进方案
+- Collects performance metrics through Meta Ads insights tools.
+- Evaluates the effectiveness of marketing plans and summarizes key results.
+- Provides structured logs and histories that can be used for manual or automated optimization.
 
-### ⏰ 自动化调度系统
+### ⏰ Automated workflow orchestration
 
-- 支持后台守护进程运行
-- 可配置执行间隔（默认 1 小时）
-- 命令行控制：启动、暂停、恢复、停止
+- The demo workflow drives a full loop:
+  - Account info retrieval.
+  - Research → plan → execute.
+  - Periodic updates to the plan via the update agent.
+  - Final summarization into `MarketingHistory`.
+- Scheduling is handled inside the workflow (e.g. epoch‑based scheduling in `DemoWorkFlow`).
 
-### 🔐 安全认证
+### 🔐 Secure authentication
 
-- Meta API OAuth 2.0 认证
-- 访问令牌自动管理和刷新
-- 安全的本地缓存机制
+- Meta API OAuth 2.0 authentication.
+- Automatic access token management and refresh.
+- Safe local storage of tokens for development.
 
-### 💾 数据持久化
+## Getting Started
 
-- SQLite 数据库存储营销历史
-- 支持复杂查询和数据分析
-- 自动备份和恢复机制
+### 1. Configure settings
 
-## 快速开始
+Core configuration lives in `ithaca/settings.py`:
 
-### 1. 启动营销调度器
+- `META_APP_ID` – Your Meta app ID.
+- `META_APP_SECRET` – Your Meta app secret.
+- `CALLBACK_SERVER_URL` – OAuth callback URL (often a local URL during development).
+- `GEMINI_API_KEY` – Your Google Gemini API key.
+
+Replace the placeholder values with your own credentials and keep them out of version control.
+
+### 2. Install dependencies
+
+Create and activate a virtual environment, then install dependencies:
 
 ```bash
-# 前台运行
-python -m ithaca.main start --product-name "智能手表" --product-url "https://example.com" --budget 10000
-
-# 后台运行
-python -m ithaca.main start --product-name "智能手表" --product-url "https://example.com" --budget 10000 --daemon
+pip install -r requirements.txt
 ```
 
-### 2. 控制调度器
+If you do not have a `requirements.txt` yet, install the libraries used in the codebase (for example `pydantic`, `google-genai`, `requests`, `pytest`, etc.).
+
+### 3. Authenticate with Meta Ads
+
+Before running workflows that call the Meta Ads API, make sure you have a valid access token.
+One convenient way is to run the demo workflow test, which will trigger the OAuth flow if no token is cached:
 
 ```bash
-# 查看状态
-python -m ithaca.scheduler_cli status
-
-# 暂停调度器
-python -m ithaca.scheduler_cli pause
-
-# 恢复调度器
-python -m ithaca.scheduler_cli resume
-
-# 停止调度器
-python -m ithaca.scheduler_cli stop
+python test/test_workflow.py
 ```
 
-### 3. 配置参数
+Follow the browser prompts to log in and authorize the app.
 
-主要配置项在 `settings.py` 中：
+### 4. Run the demo workflow in code
 
-- `META_APP_ID` - Meta 应用 ID
-- `META_APP_SECRET` - Meta 应用密钥
-- `GEMINI_API_KEY` - Google Gemini API 密钥
+You can also instantiate and run the demo workflow directly:
 
-## 系统架构
+```python
+from ithaca.workflow.data_type import MarketingInitInput
+from ithaca.workflow.demo_workflow import DemoWorkFlow
 
+wf = DemoWorkFlow(
+    marketing_input=MarketingInitInput(
+        product_name="Smart Watch",
+        product_url="https://example.com",
+        product_picture_urls=["https://example.com/watch.png"],
+    )
+)
+
+print(wf)
+plan = wf.run()
 ```
-用户输入 → 调度器 → 全能工作流 → AI 智能体 → Meta API → 效果评估 → 数据存储
+
+This runs the full research → plan → execute → update loop for the given product according to the schedule defined in `DemoWorkFlow`.
+
+## Architecture
+
+```text
+User / product input → Workflow → Agents → Meta Ads tools → Insights → Plan updates → (optional) History
 ```
 
-1. **调度器层**：管理任务执行时间和状态
-2. **工作流层**：协调各个智能体的执行顺序
-3. **智能体层**：负责具体的营销任务（研究、计划、执行、评估）
-4. **工具层**：提供 API 集成和辅助功能
-5. **数据层**：持久化存储和历史数据管理
-
-## 技术栈
-
-- **AI 框架**: LangChain + Google Gemini
-- **API 集成**: Meta Graph API
-- **数据库**: SQLite + SQLModel
-- **认证**: OAuth 2.0
-- **调度**: 自研调度器
-- **日志**: Python logging
-
-## 开发说明
-
-系统采用模块化设计，各模块职责清晰：
-
-- 智能体负责 AI 决策
-- 工具模块负责外部集成
-- 数据库模块负责数据持久化
-- 调度器负责任务管理
-- 工作流负责流程编排
-
-每个模块都有清晰的接口定义，便于扩展和维护。
+1. **Workflow layer** – Orchestrates end‑to‑end marketing flows, including scheduling and session state.
+2. **Agent layer** – Research, plan, update and summary agents that reason with LLMs and tools.
+3. **Tool layer** – Concrete integrations with Meta Ads APIs, web search and other utilities.
+4. **Data layer** – Pydantic models representing inputs, Meta Ads entities, marketing plans and histories.
