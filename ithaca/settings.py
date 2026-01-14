@@ -14,17 +14,17 @@ META_GRAPH_API_BASE = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}"
 USER_AGENT = "ithaca/1.0"
 
 # meta ads oauth
-META_APP_ID = "295659632199168"
-META_APP_SECRET = "7781f7c36bb73839866856340ff3c762"
+META_APP_ID = "" # yours
+META_APP_SECRET = "" # yours
 # CALLBACK_SERVER_URL = "https://slinky-workless-rueben.ngrok-free.dev/"   # use ngrok for development
 CALLBACK_SERVER_URL = "http://localhost:8080/"
 
 # New meta app can not set redirect url, so we use the old app id and secret
-# META_APP_ID = "1928081404776564"
-# META_APP_SECRET = "af89cecd54b7091ee8f92c12b92de2c5"
+# META_APP_ID = "" 
+# META_APP_SECRET = ""
 
 # llms
-GEMINI_API_KEY = "AIzaSyBRJL6Gw3DJjn8linIKIdgXVf5DeoGFSOM"
+GEMINI_API_KEY = ""  # yours
 
 # agents
 AGENT_CONFIG_FILE = ""
