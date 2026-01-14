@@ -1,5 +1,7 @@
 # Ithaca Local Policy Server
 
+*This is for Meta ads app requirements.*
+
 本地政策服务器，用于提供隐私政策、服务条款和数据删除指南。
 
 ## 🚀 快速启动
